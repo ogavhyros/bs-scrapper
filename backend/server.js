@@ -326,6 +326,95 @@ app.delete('/api/clear', (_req, res) => {
   }
 });
 
+// ─── CRM ROUTES ──────────────────────────────────────────────────────────────
+
+const ALLOWED_CRM_FIELDS = new Set([
+  'status', 'call_date', 'contact_person', 'outcome',
+  'notes', 'next_action', 'priority',
+]);
+
+// GET /api/crm/stats
+app.get('/api/crm/stats', (_req, res) => {
+  try {
+    const rows  = db.prepare('SELECT status, COUNT(*) as count FROM crm_contacts GROUP BY status').all();
+    const total = db.prepare('SELECT COUNT(*) as count FROM crm_contacts').get()?.count ?? 0;
+    const keyMap = {
+      'Not Called':     'notCalled',
+      'Called':         'called',
+      'Follow Up':      'followUp',
+      'Converted':      'converted',
+      'Interested':     'interested',
+      'Not Interested': 'notInterested',
+    };
+    const counts = { total, notCalled: 0, called: 0, followUp: 0, converted: 0, interested: 0, notInterested: 0 };
+    for (const r of rows) { const k = keyMap[r.status]; if (k) counts[k] = r.count; }
+    res.json(counts);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/crm
+app.get('/api/crm', (_req, res) => {
+  try {
+    res.json(db.prepare('SELECT * FROM crm_contacts ORDER BY moved_at DESC').all());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/crm/add
+app.post('/api/crm/add', (req, res) => {
+  const { place_ids } = req.body;
+  if (!Array.isArray(place_ids) || place_ids.length === 0) return res.json({ added: 0, skipped: 0 });
+
+  let added = 0, skipped = 0;
+  const select = db.prepare('SELECT * FROM contacts WHERE place_id = ?');
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO crm_contacts
+      (contact_id, place_id, name, phone, website, address, rating, category)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  db.exec('BEGIN');
+  try {
+    for (const pid of place_ids) {
+      const c = select.get(pid);
+      if (!c) { skipped++; continue; }
+      const info = insert.run(
+        c.id, c.place_id, c.name, c.phone, c.website, c.address,
+        c.rating != null ? String(c.rating) : null,
+        c.types ? c.types.split(',')[0].replace(/_/g, ' ') : null,
+      );
+      if (info.changes > 0) added++; else skipped++;
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    return res.status(500).json({ error: err.message });
+  }
+  res.json({ added, skipped });
+});
+
+// PATCH /api/crm/:place_id
+app.patch('/api/crm/:place_id', (req, res) => {
+  const { place_id } = req.params;
+  const fields = Object.keys(req.body).filter(k => ALLOWED_CRM_FIELDS.has(k));
+  if (fields.length === 0) return res.json({ updated: 0 });
+
+  const setClauses = [...fields.map(f => `${f} = ?`), "updated_at = datetime('now')"].join(', ');
+  try {
+    const info = db.prepare(`UPDATE crm_contacts SET ${setClauses} WHERE place_id = ?`)
+      .run(...fields.map(f => req.body[f]), place_id);
+    res.json({ updated: info.changes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/crm/:place_id
+app.delete('/api/crm/:place_id', (req, res) => {
+  const { place_id } = req.params;
+  try {
+    const info = db.prepare('DELETE FROM crm_contacts WHERE place_id = ?').run(place_id);
+    res.json({ deleted: info.changes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`\n  Business Scout API  →  http://localhost:${PORT}\n`);

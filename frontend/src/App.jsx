@@ -3,6 +3,8 @@ import Sidebar     from './components/Sidebar';
 import ScraperTab  from './components/ScraperTab';
 import ContactsTab from './components/ContactsTab';
 import HistoryTab  from './components/HistoryTab';
+import CRMTab      from './components/CRMTab';
+import { useToast, ToastContainer } from './components/Toast';
 
 // ── Priority classifier (shared across tabs) ─────────────────────────────────
 export function getPriority(contact) {
@@ -15,16 +17,20 @@ export function getPriority(contact) {
 
 // ── Page metadata ─────────────────────────────────────────────────────────────
 const PAGE_META = {
-  scraper:  (s) => ({ title: 'Contact Scraper', sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · sorted by completeness`  }),
-  contacts: (s) => ({ title: 'All Contacts',    sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records`          }),
-  history:  (s) => ({ title: 'Analytics',       sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history`                      }),
+  scraper:  (s) => ({ title: 'Contact Scraper', sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · sorted by completeness`   }),
+  contacts: (s) => ({ title: 'All Contacts',    sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records`           }),
+  history:  (s) => ({ title: 'Analytics',       sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history`                       }),
+  crm:      (s) => ({ title: 'CRM Tracker',     sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups`       }),
 };
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [activeTab, setActiveTab] = useState('scraper');
-  const [contacts,  setContacts]  = useState([]);
-  const [runs,      setRuns]      = useState([]);
+  const [activeTab,   setActiveTab]   = useState('scraper');
+  const [contacts,    setContacts]    = useState([]);
+  const [runs,        setRuns]        = useState([]);
+  const [crmContacts, setCrmContacts] = useState([]);
+
+  const { toasts, showToast } = useToast();
 
   const fetchContacts = useCallback(async () => {
     try { setContacts(await (await fetch('/api/contacts')).json()); }
@@ -36,15 +42,23 @@ export default function App() {
     catch (e) { console.error('runs:', e); }
   }, []);
 
+  const fetchCrm = useCallback(async () => {
+    try { setCrmContacts(await (await fetch('/api/crm')).json()); }
+    catch (e) { console.error('crm:', e); }
+  }, []);
+
   useEffect(() => {
     fetchContacts();
     fetchRuns();
-  }, [fetchContacts, fetchRuns]);
+    fetchCrm();
+  }, [fetchContacts, fetchRuns, fetchCrm]);
 
   const refreshData = useCallback(
-    () => Promise.all([fetchContacts(), fetchRuns()]),
-    [fetchContacts, fetchRuns],
+    () => Promise.all([fetchContacts(), fetchRuns(), fetchCrm()]),
+    [fetchContacts, fetchRuns, fetchCrm],
   );
+
+  const crmPlaceIds = new Set(crmContacts.map(c => c.place_id));
 
   const stats = {
     total:       contacts.length,
@@ -54,6 +68,7 @@ export default function App() {
     critical:    contacts.filter(c => getPriority(c) === 'critical').length,
     high:        contacts.filter(c => getPriority(c) === 'high').length,
     normal:      contacts.filter(c => getPriority(c) === 'normal').length,
+    crmTotal:    crmContacts.length,
   };
 
   const page = (PAGE_META[activeTab] ?? PAGE_META.scraper)(stats);
@@ -66,6 +81,7 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         totalContacts={stats.total}
+        crmCount={stats.crmTotal}
       />
 
       {/* ── Content shell ────────────────────────────────────────────────── */}
@@ -88,11 +104,27 @@ export default function App() {
 
           <div className="px-8 pb-8 pt-5">
             {activeTab === 'scraper'  && <ScraperTab  stats={stats} onRefresh={refreshData} />}
-            {activeTab === 'contacts' && <ContactsTab contacts={contacts} onRefresh={refreshData} />}
+            {activeTab === 'contacts' && (
+              <ContactsTab
+                contacts={contacts}
+                onRefresh={refreshData}
+                crmPlaceIds={crmPlaceIds}
+                showToast={showToast}
+              />
+            )}
             {activeTab === 'history'  && <HistoryTab  runs={runs} />}
+            {activeTab === 'crm'      && (
+              <CRMTab
+                crmContacts={crmContacts}
+                onRefresh={refreshData}
+                showToast={showToast}
+              />
+            )}
           </div>
         </main>
       </div>
+
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }

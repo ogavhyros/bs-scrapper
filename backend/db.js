@@ -38,4 +38,27 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS crm_contacts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id     INTEGER,
+    place_id       TEXT UNIQUE,
+    name           TEXT,
+    phone          TEXT,
+    website        TEXT,
+    address        TEXT,
+    rating         TEXT,
+    category       TEXT,
+    status         TEXT DEFAULT 'Not Called',
+    call_date      TEXT,
+    contact_person TEXT,
+    outcome        TEXT,
+    notes          TEXT,
+    next_action    TEXT,
+    priority       TEXT DEFAULT 'Cold',
+    moved_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 module.exports = db;

@@ -1,6 +1,6 @@
 import {
   LayoutGrid, ShoppingBasket, Table2, UtensilsCrossed,
-  Layers, CalendarDays, Search,
+  Layers, CalendarDays, Search, Phone,
 } from 'lucide-react';
 
 // ── Nav configuration ────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled }) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ activeTab, setActiveTab, totalContacts }) {
+export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount }) {
   const ordersOpen = ['scraper', 'contacts', 'history'].includes(activeTab);
 
   return (
@@ -121,6 +121,15 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts }) {
             ))}
           </div>
         </div>
+
+        {/* CRM */}
+        <NavItem
+          icon={Phone}
+          label="CRM"
+          active={activeTab === 'crm'}
+          badge={crmCount}
+          onClick={() => setActiveTab('crm')}
+        />
 
         {/* Decorative nav items */}
         <div className="pt-1">

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search, Download, Trash2, Phone, Globe,
   MapPin, Star, Flame, AlertTriangle, CheckCircle2,
@@ -21,38 +21,12 @@ function formatType(t) {
 }
 
 const PRIORITY_CONFIG = {
-  critical: {
-    icon:   Flame,
-    label:  'NO DATA',
-    status: '● No Contact Data',
-    bg:     '#fee2e2',
-    text:   '#dc2626',
-    border: '#fecaca',
-  },
-  high: {
-    icon:   AlertTriangle,
-    label:  'PARTIAL',
-    status: '● Partial Data',
-    bg:     '#fef3c7',
-    text:   '#d97706',
-    border: '#fde68a',
-  },
-  normal: {
-    icon:   CheckCircle2,
-    label:  'COMPLETE',
-    status: '● Complete',
-    bg:     '#f0fdf4',
-    text:   '#16a34a',
-    border: '#bbf7d0',
-  },
+  critical: { icon: Flame,         label: 'NO DATA',  status: '● No Contact Data', bg: '#fee2e2', text: '#dc2626', border: '#fecaca' },
+  high:     { icon: AlertTriangle, label: 'PARTIAL',  status: '● Partial Data',    bg: '#fef3c7', text: '#d97706', border: '#fde68a' },
+  normal:   { icon: CheckCircle2,  label: 'COMPLETE', status: '● Complete',        bg: '#f0fdf4', text: '#16a34a', border: '#bbf7d0' },
 };
 
-// Display labels for completeness filter pills
-const COMPLETENESS_LABEL = {
-  critical: 'no-data',
-  high:     'partial',
-  normal:   'complete',
-};
+const COMPLETENESS_LABEL = { critical: 'no-data', high: 'partial', normal: 'complete' };
 
 const FILTER_OPTS = [
   { id: 'all',      label: 'All'      },
@@ -63,7 +37,7 @@ const FILTER_OPTS = [
 
 // ── Business card ─────────────────────────────────────────────────────────────
 
-function BusinessCard({ contact, index }) {
+function BusinessCard({ contact, index, selected, onToggle, inCrm }) {
   const priority = getPriority(contact);
   const cfg      = PRIORITY_CONFIG[priority];
   const Icon     = cfg.icon;
@@ -76,11 +50,21 @@ function BusinessCard({ contact, index }) {
 
   return (
     <div
-      className="card p-5 border-l-[3px] border-l-transparent
-                 hover:border-l-amber-400 hover:shadow-card-lg
-                 transition-all duration-150 cursor-default"
+      className={`card p-5 border-l-[3px] hover:shadow-card-lg transition-all duration-150 cursor-default
+                  ${selected ? 'border-l-brand bg-green-50/30' : 'border-l-transparent hover:border-l-amber-400'}`}
     >
       <div className="flex gap-4">
+
+        {/* ── Checkbox ─────────────────────────────────────────────────── */}
+        <div className="flex items-start pt-1.5 flex-shrink-0">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            onClick={e => e.stopPropagation()}
+            className="w-4 h-4 rounded cursor-pointer accent-brand"
+          />
+        </div>
 
         {/* ── Left: index + avatar ──────────────────────────────────────── */}
         <div className="flex flex-col items-center gap-1.5 flex-shrink-0 w-10">
@@ -97,13 +81,11 @@ function BusinessCard({ contact, index }) {
         {/* ── Center: all info ──────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">
 
-          {/* Name + priority badge + status pill */}
+          {/* Name row */}
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <h3 className="text-[18px] font-bold text-ink leading-tight">
               {contact.name || '—'}
             </h3>
-
-            {/* Priority badge */}
             <span
               className="priority-badge flex items-center gap-1"
               style={{ backgroundColor: cfg.bg, color: cfg.text }}
@@ -111,14 +93,20 @@ function BusinessCard({ contact, index }) {
               <Icon size={10} />
               {cfg.label}
             </span>
-
-            {/* Status pill */}
             <span
               className="status-pill"
               style={{ backgroundColor: cfg.bg, color: cfg.text }}
             >
               {cfg.status}
             </span>
+            {inCrm && (
+              <span
+                className="px-2.5 py-0.5 rounded-full text-[11px] font-bold border"
+                style={{ backgroundColor: '#f0fdf4', color: '#22c55e', borderColor: '#bbf7d0' }}
+              >
+                In CRM ✓
+              </span>
+            )}
           </div>
 
           {/* Phone + Website */}
@@ -126,22 +114,18 @@ function BusinessCard({ contact, index }) {
             <span className="flex items-center gap-1.5">
               <Phone size={13} className="flex-shrink-0" />
               {contact.phone ? (
-                <a href={`tel:${contact.phone}`}
-                   className="hover:text-brand transition-colors">
+                <a href={`tel:${contact.phone}`} className="hover:text-brand transition-colors">
                   {contact.phone}
                 </a>
               ) : (
                 <span className="text-ink-ghost italic text-xs">No phone</span>
               )}
             </span>
-
             <span className="flex items-center gap-1.5 min-w-0">
               <Globe size={13} className="flex-shrink-0" />
               {contact.website ? (
                 <a
-                  href={contact.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={contact.website} target="_blank" rel="noopener noreferrer"
                   className="hover:text-brand transition-colors truncate max-w-[220px]"
                 >
                   {contact.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')}
@@ -156,17 +140,14 @@ function BusinessCard({ contact, index }) {
           {typeTags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2.5">
               {typeTags.map(t => (
-                <span
-                  key={t}
-                  className="px-2.5 py-0.5 bg-nav-active text-ink-soft text-[12px] rounded-full"
-                >
+                <span key={t} className="px-2.5 py-0.5 bg-nav-active text-ink-soft text-[12px] rounded-full">
                   {formatType(t)}
                 </span>
               ))}
             </div>
           )}
 
-          {/* Address (Notes) */}
+          {/* Address */}
           {contact.address && (
             <div className="flex items-start gap-2">
               <span className="label-xs mt-0.5 flex-shrink-0 flex items-center gap-1">
@@ -191,9 +172,7 @@ function BusinessCard({ contact, index }) {
             </div>
           )}
           {contact.scraped_date && (
-            <span className="text-[11px] text-ink-muted mt-0.5">
-              {contact.scraped_date}
-            </span>
+            <span className="text-[11px] text-ink-muted mt-0.5">{contact.scraped_date}</span>
           )}
         </div>
       </div>
@@ -221,33 +200,74 @@ function EmptyState({ filtered }) {
 
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
-export default function ContactsTab({ contacts, onRefresh }) {
+export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToast }) {
   const [search,   setSearch]   = useState('');
   const [filter,   setFilter]   = useState('all');
   const [clearing, setClearing] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [moving,   setMoving]   = useState(false);
+
+  const selectAllRef = useRef(null);
 
   const filtered = useMemo(() => {
     let list = contacts;
-
-    // Priority filter
-    if (filter !== 'all') {
-      list = list.filter(c => getPriority(c) === filter);
-    }
-
-    // Text search
+    if (filter !== 'all') list = list.filter(c => getPriority(c) === filter);
     const q = search.toLowerCase().trim();
-    if (q) {
-      list = list.filter(c =>
-        (c.name    || '').toLowerCase().includes(q) ||
-        (c.address || '').toLowerCase().includes(q) ||
-        (c.phone   || '').includes(q) ||
-        (c.website || '').toLowerCase().includes(q) ||
-        (c.types   || '').toLowerCase().includes(q)
-      );
-    }
-
+    if (q) list = list.filter(c =>
+      (c.name    || '').toLowerCase().includes(q) ||
+      (c.address || '').toLowerCase().includes(q) ||
+      (c.phone   || '').includes(q)               ||
+      (c.website || '').toLowerCase().includes(q) ||
+      (c.types   || '').toLowerCase().includes(q)
+    );
     return list;
   }, [contacts, search, filter]);
+
+  const allFilteredSelected  = filtered.length > 0 && filtered.every(c => selected.has(c.place_id));
+  const someFilteredSelected = filtered.some(c => selected.has(c.place_id));
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someFilteredSelected && !allFilteredSelected;
+    }
+  }, [someFilteredSelected, allFilteredSelected]);
+
+  const handleToggle = (place_id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(place_id)) next.delete(place_id); else next.add(place_id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filtered.forEach(c => next.delete(c.place_id));
+      else                     filtered.forEach(c => next.add(c.place_id));
+      return next;
+    });
+  };
+
+  const handleMoveTocrm = async () => {
+    const place_ids = [...selected];
+    setMoving(true);
+    try {
+      const res  = await fetch('/api/crm/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ place_ids }),
+      });
+      const data = await res.json();
+      showToast(`${data.added} contact${data.added !== 1 ? 's' : ''} added to CRM`, 'success');
+      setSelected(new Set());
+      await onRefresh();
+    } catch {
+      showToast('Failed to move contacts to CRM', 'error');
+    } finally {
+      setMoving(false);
+    }
+  };
 
   const handleExport = () => { window.location.href = '/api/export'; };
 
@@ -259,6 +279,7 @@ export default function ContactsTab({ contacts, onRefresh }) {
       await onRefresh();
       setSearch('');
       setFilter('all');
+      setSelected(new Set());
     } catch (e) { console.error('Clear failed:', e); }
     finally     { setClearing(false); }
   };
@@ -270,22 +291,33 @@ export default function ContactsTab({ contacts, onRefresh }) {
       <div className="card px-4 py-3">
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
 
-          {/* Search */}
-          <div className="relative flex-1 min-w-0">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
+          {/* Select All + Search */}
+          <div className="flex items-center gap-3 flex-1 min-w-0">
             <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by name, phone, website, address…"
-              className="input-base pl-9"
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allFilteredSelected}
+              onChange={handleSelectAll}
+              disabled={filtered.length === 0}
+              className="w-4 h-4 rounded cursor-pointer accent-brand flex-shrink-0"
+              title="Select all visible"
             />
+            <div className="relative flex-1 min-w-0">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by name, phone, website, address…"
+                className="input-base pl-9"
+              />
+            </div>
           </div>
 
           {/* Priority filters */}
           <div className="flex gap-1.5 flex-shrink-0">
             {FILTER_OPTS.map(f => {
-              const cfg = PRIORITY_CONFIG[f.id];
+              const cfg      = PRIORITY_CONFIG[f.id];
               const isActive = filter === f.id;
               return (
                 <button
@@ -293,16 +325,8 @@ export default function ContactsTab({ contacts, onRefresh }) {
                   onClick={() => setFilter(f.id)}
                   className="px-3 py-1.5 rounded-full text-xs font-semibold transition-colors"
                   style={isActive
-                    ? {
-                        backgroundColor: cfg?.bg ?? '#1a1a1a',
-                        color:           cfg?.text ?? '#ffffff',
-                        border:          `1px solid ${cfg?.border ?? 'transparent'}`,
-                      }
-                    : {
-                        backgroundColor: '#f3f4f6',
-                        color:           '#6b7280',
-                        border:          '1px solid #e5e7eb',
-                      }
+                    ? { backgroundColor: cfg?.bg ?? '#1a1a1a', color: cfg?.text ?? '#ffffff', border: `1px solid ${cfg?.border ?? 'transparent'}` }
+                    : { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #e5e7eb' }
                   }
                 >
                   {f.label}
@@ -338,8 +362,38 @@ export default function ContactsTab({ contacts, onRefresh }) {
             ? `${filtered.length} ${COMPLETENESS_LABEL[filter] ?? filter} contact${filtered.length !== 1 ? 's' : ''} of ${contacts.length} total`
             : `${filtered.length} of ${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`
           }
+          {selected.size > 0 && (
+            <span className="ml-2 text-brand font-semibold">· {selected.size} selected</span>
+          )}
         </p>
       </div>
+
+      {/* ── Action bar (shown when contacts are selected) ────────────────── */}
+      {selected.size > 0 && (
+        <div
+          className="rounded-card px-5 py-3 flex items-center justify-between border shadow-card"
+          style={{ backgroundColor: '#f0fdf4', borderColor: '#22c55e' }}
+        >
+          <span className="text-sm font-semibold text-ink">
+            {selected.size} contact{selected.size !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-xs text-ink-muted hover:text-ink transition-colors"
+            >
+              Clear selection
+            </button>
+            <button
+              onClick={handleMoveTocrm}
+              disabled={moving}
+              className="btn-primary py-1.5 px-4 text-xs"
+            >
+              {moving ? 'Moving…' : 'Move to CRM →'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Cards ───────────────────────────────────────────────────────── */}
       {contacts.length === 0 ? (
@@ -349,7 +403,14 @@ export default function ContactsTab({ contacts, onRefresh }) {
       ) : (
         <div className="space-y-3">
           {filtered.map((c, i) => (
-            <BusinessCard key={c.id} contact={c} index={i} />
+            <BusinessCard
+              key={c.id}
+              contact={c}
+              index={i}
+              selected={selected.has(c.place_id)}
+              onToggle={() => handleToggle(c.place_id)}
+              inCrm={crmPlaceIds?.has(c.place_id) ?? false}
+            />
           ))}
         </div>
       )}
