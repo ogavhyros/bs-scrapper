@@ -75,8 +75,9 @@ function StatusBanner({ status }) {
     success: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
     error:   { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
     warning: { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
+    info:    { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
   };
-  const s = map[status.type] ?? map.warning;
+  const s = map[status.type] ?? map.info;
   return (
     <div
       className="mt-4 px-4 py-3 rounded-nav text-sm font-medium border"
@@ -112,27 +113,62 @@ export default function ScraperTab({ stats, onRefresh }) {
       return;
     }
     setLoading(true);
-    setStatus(null);
+    setStatus({ type: 'info', message: 'Starting scrape…' });
 
     try {
-      // 1. Fetch from Google Places (API key is read server-side from env)
-      const scrapeRes  = await fetch('/api/scrape', {
+      // 1. POST to scrape endpoint — response is an SSE stream
+      const scrapeRes = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword, location, radius }),
       });
-      const scrapeData = await scrapeRes.json();
 
+      // Pre-SSE validation errors return plain JSON with a non-200 status
       if (!scrapeRes.ok) {
-        setStatus({ type: 'error', message: scrapeData.error || 'Scrape failed.' });
+        const err = await scrapeRes.json();
+        setStatus({ type: 'error', message: err.error || 'Scrape failed.' });
         return;
       }
+
+      // 2. Read the SSE stream line-by-line
+      const reader  = scrapeRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer    = '';
+      let scrapeData = null;
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep any incomplete trailing line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let evt;
+          try { evt = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (evt.type === 'progress') {
+            setStatus({ type: 'info', message: evt.message });
+          } else if (evt.type === 'error') {
+            setStatus({ type: 'error', message: evt.message });
+            break outer;
+          } else if (evt.type === 'result') {
+            scrapeData = evt;
+            break outer;
+          }
+        }
+      }
+
+      if (!scrapeData) return; // error already set above
+
       if (scrapeData.count === 0) {
         setStatus({ type: 'warning', message: 'No results found. Try a different keyword or broader location.' });
         return;
       }
 
-      // 2. Save (INSERT OR IGNORE deduplication)
+      // 3. Save to DB (INSERT OR IGNORE deduplication)
       const saveRes  = await fetch('/api/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,7 +176,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       });
       const saveData = await saveRes.json();
 
-      // 3. Log run
+      // 4. Log run
       await fetch('/api/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -270,7 +306,7 @@ export default function ScraperTab({ stats, onRefresh }) {
           </li>
           <li className="flex gap-2 items-start">
             <span className="text-ink-ghost mt-0.5">·</span>
-            Up to 10 businesses scraped per run
+            Up to 100 businesses scraped per run (5 pages × 20)
           </li>
           <li className="flex gap-2 items-start">
             <span className="text-ink-ghost mt-0.5">·</span>

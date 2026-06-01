@@ -1,9 +1,9 @@
 require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const axios   = require('axios');
-const XLSX    = require('xlsx');
-const db      = require('./db');
+const express  = require('express');
+const cors     = require('cors');
+const axios    = require('axios');
+const ExcelJS  = require('exceljs');
+const db       = require('./db');
 
 const app = express();
 app.use(cors());
@@ -12,6 +12,7 @@ app.use(express.json());
 const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
 
 // ─── POST /api/scrape ────────────────────────────────────────────────────────
+// Streams progress via SSE then sends a final "result" event.
 app.post('/api/scrape', async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   const { keyword, location, radius } = req.body;
@@ -23,39 +24,87 @@ app.post('/api/scrape', async (req, res) => {
     return res.status(400).json({ error: 'Keyword and location are required.' });
   }
 
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
   try {
-    const searchRes = await axios.get(`${PLACES_BASE}/textsearch/json`, {
-      params: { query: `${keyword} in ${location}`, radius: radius || 5000, key: apiKey },
-      timeout: 15000,
-    });
+    const allPlaces = [];
+    let pageToken   = null;
+    let pageNum     = 0;
 
-    const { status, results = [], error_message } = searchRes.data;
+    // ── Paginate up to 5 pages (max 100 results) ──────────────────────────────
+    while (pageNum < 5) {
+      send({ type: 'progress', message: `Fetching page ${pageNum + 1}…` });
 
-    if (status === 'REQUEST_DENIED' || status === 'INVALID_REQUEST') {
-      return res.status(400).json({
-        error: `Google API: ${status} — ${error_message || 'Check your API key and enabled APIs.'}`,
+      const params = { key: apiKey };
+      if (pageNum === 0) {
+        params.query  = `${keyword} in ${location}`;
+        params.radius = radius || 5000;
+      } else {
+        params.pagetoken = pageToken;
+      }
+
+      const searchRes = await axios.get(`${PLACES_BASE}/textsearch/json`, {
+        params, timeout: 15000,
       });
+
+      const { status, results = [], next_page_token, error_message } = searchRes.data;
+
+      if (pageNum === 0) {
+        if (status === 'REQUEST_DENIED' || status === 'INVALID_REQUEST') {
+          send({ type: 'error', message: `Google API: ${status} — ${error_message || 'Check your API key and enabled APIs.'}` });
+          return res.end();
+        }
+        if (status === 'ZERO_RESULTS') {
+          send({ type: 'result', results: [], count: 0 });
+          return res.end();
+        }
+        if (status !== 'OK') {
+          send({ type: 'error', message: `Google Places: ${status}` });
+          return res.end();
+        }
+      } else if (status !== 'OK') {
+        break;
+      }
+
+      allPlaces.push(...results);
+      pageNum++;
+
+      if (!next_page_token) break;
+      pageToken = next_page_token;
+
+      // Google requires ~2 s before the next_page_token becomes valid
+      await new Promise(r => setTimeout(r, 2000));
     }
-    if (status === 'ZERO_RESULTS') return res.json({ results: [], count: 0 });
-    if (status !== 'OK') return res.status(400).json({ error: `Google Places: ${status}` });
 
-    const today = new Date().toISOString().split('T')[0];
-    const enriched = [];
+    // ── Enrich with Place Details in parallel batches of 5 ────────────────────
+    const today        = new Date().toISOString().split('T')[0];
+    const enriched     = [];
+    const BATCH        = 5;
+    const totalBatches = Math.ceil(allPlaces.length / BATCH);
 
-    for (const place of results.slice(0, 10)) {
-      try {
-        const detailRes = await axios.get(`${PLACES_BASE}/details/json`, {
-          params: {
-            place_id: place.place_id,
-            fields: 'place_id,name,formatted_phone_number,website,formatted_address,rating,types,geometry',
-            key: apiKey,
-          },
-          timeout: 10000,
-        });
+    for (let i = 0; i < allPlaces.length; i += BATCH) {
+      const batchNum = Math.floor(i / BATCH) + 1;
+      send({ type: 'progress', message: `Fetching details… batch ${batchNum} of ${totalBatches}` });
 
-        if (detailRes.data.status === 'OK') {
-          const d = detailRes.data.result;
-          enriched.push({
+      const batch   = allPlaces.slice(i, i + BATCH);
+      const details = await Promise.all(batch.map(async place => {
+        try {
+          const dr = await axios.get(`${PLACES_BASE}/details/json`, {
+            params: {
+              place_id: place.place_id,
+              fields: 'place_id,name,formatted_phone_number,website,formatted_address,rating,types,geometry',
+              key: apiKey,
+            },
+            timeout: 10000,
+          });
+          if (dr.data.status !== 'OK') return null;
+          const d = dr.data.result;
+          return {
             place_id:          d.place_id,
             name:              d.name              || place.name              || null,
             phone:             d.formatted_phone_number                       || null,
@@ -63,22 +112,27 @@ app.post('/api/scrape', async (req, res) => {
             address:           d.formatted_address || place.formatted_address || null,
             rating:            d.rating            ?? place.rating            ?? null,
             types:             (d.types || place.types || []).join(','),
-            lat:               d.geometry?.location?.lat  ?? place.geometry?.location?.lat  ?? null,
-            lng:               d.geometry?.location?.lng  ?? place.geometry?.location?.lng  ?? null,
+            lat:               d.geometry?.location?.lat ?? place.geometry?.location?.lat ?? null,
+            lng:               d.geometry?.location?.lng ?? place.geometry?.location?.lng ?? null,
             keyword_searched:  keyword,
             location_searched: location,
             scraped_date:      today,
-          });
+          };
+        } catch (e) {
+          console.warn(`Details failed for ${place.place_id}:`, e.message);
+          return null;
         }
-      } catch (e) {
-        console.warn(`Details failed for ${place.place_id}:`, e.message);
-      }
+      }));
+
+      enriched.push(...details.filter(Boolean));
     }
 
-    res.json({ results: enriched, count: enriched.length });
+    send({ type: 'result', results: enriched, count: enriched.length });
+    res.end();
   } catch (err) {
     console.error('Scrape error:', err.message);
-    res.status(500).json({ error: 'Scrape failed: ' + err.message });
+    send({ type: 'error', message: 'Scrape failed: ' + err.message });
+    res.end();
   }
 });
 
@@ -152,51 +206,108 @@ app.post('/api/runs', (req, res) => {
 });
 
 // ─── GET /api/export ─────────────────────────────────────────────────────────
-app.get('/api/export', (_req, res) => {
+app.get('/api/export', async (_req, res) => {
   try {
     const contacts = db.prepare('SELECT * FROM contacts ORDER BY created_at DESC').all();
-    const runs     = db.prepare('SELECT * FROM runs ORDER BY created_at DESC').all();
 
-    const wb = XLSX.utils.book_new();
+    const wb = new ExcelJS.Workbook();
 
-    const contactRows = contacts.map(c => ({
-      'Business Name':   c.name              || '',
-      'Phone':           c.phone             || '',
-      'Website':         c.website           || '',
-      'Address':         c.address           || '',
-      'Rating':          c.rating            ?? '',
-      'Category':        c.types ? c.types.split(',')[0].replace(/_/g, ' ') : '',
-      'All Types':       c.types             || '',
-      'Latitude':        c.lat               ?? '',
-      'Longitude':       c.lng               ?? '',
-      'Keyword':         c.keyword_searched  || '',
-      'Location':        c.location_searched || '',
-      'Scraped Date':    c.scraped_date      || '',
-      'Created At':      c.created_at        || '',
-      'Place ID':        c.place_id          || '',
-    }));
-    const ws1 = XLSX.utils.json_to_sheet(contactRows.length ? contactRows : [{}]);
-    ws1['!cols'] = [30,18,38,45,8,22,30,10,10,22,22,14,20,32].map(w => ({ wch: w }));
-    XLSX.utils.book_append_sheet(wb, ws1, 'Business Contacts');
+    // ── Sheet 1: Business Contacts (clean, user-facing columns) ──────────────
+    const ws1 = wb.addWorksheet('Business Contacts');
+    ws1.columns = [
+      { header: '#',             key: 'num',      width: 4  },
+      { header: 'Business Name', key: 'name',     width: 35 },
+      { header: 'Phone',         key: 'phone',    width: 20 },
+      { header: 'Website',       key: 'website',  width: 35 },
+      { header: 'Address',       key: 'address',  width: 45 },
+      { header: 'Rating',        key: 'rating',   width: 8  },
+      { header: 'Category',      key: 'category', width: 22 },
+    ];
+    contacts.forEach((c, i) => {
+      ws1.addRow({
+        num:      i + 1,
+        name:     c.name    || '',
+        phone:    c.phone   || '',
+        website:  c.website || '',
+        address:  c.address || '',
+        rating:   c.rating  ?? '',
+        category: c.types ? c.types.split(',')[0].replace(/_/g, ' ') : '',
+      });
+    });
 
-    const runRows = runs.map(r => ({
-      'Date':        r.date     || '',
-      'Keyword':     r.keyword  || '',
-      'Location':    r.location || '',
-      'Added':       r.added    ?? 0,
-      'Skipped':     r.skipped  ?? 0,
-      'Total Found': r.total    ?? 0,
-      'Created At':  r.created_at || '',
-    }));
-    const ws2 = XLSX.utils.json_to_sheet(runRows.length ? runRows : [{}]);
-    ws2['!cols'] = [12,25,25,8,8,12,20].map(w => ({ wch: w }));
-    XLSX.utils.book_append_sheet(wb, ws2, 'Scrape History');
+    // ── Sheet 2: CRM Tracker ──────────────────────────────────────────────────
+    const ws2 = wb.addWorksheet('CRM Tracker');
+    ws2.columns = [
+      { header: '#',              key: 'num',      width: 4  },
+      { header: 'Business Name',  key: 'name',     width: 35 },
+      { header: 'Phone',          key: 'phone',    width: 20 },
+      { header: 'Called?',        key: 'called',   width: 14 },
+      { header: 'Call Date',      key: 'callDate', width: 14 },
+      { header: 'Contact Person', key: 'contact',  width: 20 },
+      { header: 'Outcome',        key: 'outcome',  width: 18 },
+      { header: 'Notes',          key: 'notes',    width: 30 },
+      { header: 'Next Action',    key: 'action',   width: 18 },
+      { header: 'Priority',       key: 'priority', width: 10 },
+    ];
 
-    const buf     = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    // Header row: bold, green bg, white text
+    ws2.getRow(1).eachCell(cell => {
+      cell.font      = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF22C55E' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+
+    // Freeze top row
+    ws2.views = [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
+
+    // Auto-filter on header row
+    ws2.autoFilter = { from: 'A1', to: 'J1' };
+
+    // Data rows: alternating white / light gray, default "❌ Not Called"
+    contacts.forEach((c, i) => {
+      const row       = ws2.addRow({
+        num:      i + 1,
+        name:     c.name  || '',
+        phone:    c.phone || '',
+        called:   '❌ Not Called',
+        callDate: '',
+        contact:  '',
+        outcome:  '',
+        notes:    '',
+        action:   '',
+        priority: '',
+      });
+      const fillArgb = i % 2 === 0 ? 'FFFFFFFF' : 'FFF9FAFB';
+      row.eachCell({ includeEmpty: true }, cell => {
+        cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillArgb } };
+        cell.alignment = { vertical: 'middle' };
+      });
+    });
+
+    // Dropdown data validations
+    const dvLast = Math.max(contacts.length + 1, 2);
+    ws2.dataValidations.add(`D2:D${dvLast}`, {
+      type: 'list', allowBlank: true, showErrorMessage: false,
+      formulae: ['"✅ Called,❌ Not Called,🔄 Follow Up"'],
+    });
+    ws2.dataValidations.add(`G2:G${dvLast}`, {
+      type: 'list', allowBlank: true, showErrorMessage: false,
+      formulae: ['"Interested,Not Interested,No Answer,Voicemail,Wrong Number"'],
+    });
+    ws2.dataValidations.add(`I2:I${dvLast}`, {
+      type: 'list', allowBlank: true, showErrorMessage: false,
+      formulae: ['"Send Proposal,Call Again,Remove,Converted"'],
+    });
+    ws2.dataValidations.add(`J2:J${dvLast}`, {
+      type: 'list', allowBlank: true, showErrorMessage: false,
+      formulae: ['"Hot,Warm,Cold"'],
+    });
+
+    const buf     = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().split('T')[0];
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="google_business_contacts_${dateStr}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="business_contacts_CRM_${dateStr}.xlsx"`);
     res.send(buf);
   } catch (err) {
     console.error('Export error:', err);
