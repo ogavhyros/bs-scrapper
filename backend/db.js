@@ -1,8 +1,13 @@
 require('dotenv').config();
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
+const fs   = require('fs');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'contacts.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'database.db');
+
+const dir = path.dirname(DB_PATH);
+if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
 const db = new DatabaseSync(DB_PATH);
 
 db.exec('PRAGMA journal_mode = WAL');
