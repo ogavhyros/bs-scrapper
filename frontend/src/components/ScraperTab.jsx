@@ -167,38 +167,18 @@ export default function ScraperTab({ stats, onRefresh }) {
 
       if (!scrapeData) return; // error already set above
 
-      if (scrapeData.count === 0) {
+      if (scrapeData.total_found === 0) {
         setStatus({ type: 'warning', message: 'No results found. Try a different keyword or broader location.' });
         return;
       }
 
-      // 3. Save to DB (INSERT OR IGNORE deduplication)
-      const saveRes  = await fetch(`${API}/api/contacts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ contacts: scrapeData.results }),
-      });
-      const saveData = await saveRes.json();
-
-      // 4. Log run
-      await fetch(`${API}/api/runs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({
-          keyword, location,
-          date:    new Date().toISOString().split('T')[0],
-          added:   saveData.added,
-          skipped: saveData.skipped,
-          total:   scrapeData.count,
-        }),
-      });
-
+      // Backend saves and logs the run — just refresh the UI
       await onRefresh();
 
       const n = (v, w) => `${v} ${w}${v !== 1 ? 's' : ''}`;
       setStatus({
         type: 'success',
-        message: `✓ Added ${n(saveData.added, 'new contact')} · ${n(saveData.skipped, 'duplicate')} skipped · ${scrapeData.count} total found`,
+        message: `✓ Added ${n(scrapeData.new_added, 'new contact')} · ${n(scrapeData.skipped, 'duplicate')} skipped · ${scrapeData.total_found} found across ${scrapeData.pages_fetched} page${scrapeData.pages_fetched !== 1 ? 's' : ''}`,
       });
     } catch (err) {
       setStatus({ type: 'error', message: 'Network error: ' + err.message });
