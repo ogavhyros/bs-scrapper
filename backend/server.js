@@ -13,10 +13,14 @@ const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
 
 // ─── POST /api/scrape ────────────────────────────────────────────────────────
 app.post('/api/scrape', async (req, res) => {
-  const { apiKey, keyword, location, radius } = req.body;
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const { keyword, location, radius } = req.body;
 
-  if (!apiKey || !keyword || !location) {
-    return res.status(400).json({ error: 'API key, keyword, and location are required.' });
+  if (!apiKey) {
+    return res.status(500).json({ error: 'GOOGLE_PLACES_API_KEY is not set in the server environment.' });
+  }
+  if (!keyword || !location) {
+    return res.status(400).json({ error: 'Keyword and location are required.' });
   }
 
   try {

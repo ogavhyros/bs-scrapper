@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Flame, AlertTriangle, CheckCircle2, BarChart3,
-  Eye, EyeOff, Search, Loader2, KeyRound, MapPin, Radius,
+  Search, Loader2, MapPin, Radius,
 } from 'lucide-react';
 
 // ── Priority stat cards ───────────────────────────────────────────────────────
@@ -100,8 +100,6 @@ const RADII = [
 // ── ScraperTab ────────────────────────────────────────────────────────────────
 
 export default function ScraperTab({ stats, onRefresh }) {
-  const [apiKey,   setApiKey]   = useState('');
-  const [showKey,  setShowKey]  = useState(false);
   const [keyword,  setKeyword]  = useState('');
   const [location, setLocation] = useState('');
   const [radius,   setRadius]   = useState(5000);
@@ -109,19 +107,19 @@ export default function ScraperTab({ stats, onRefresh }) {
   const [status,   setStatus]   = useState(null);
 
   const handleScrape = async () => {
-    if (!apiKey.trim() || !keyword.trim() || !location.trim()) {
-      setStatus({ type: 'error', message: 'Please fill in all three fields: API key, keyword, and location.' });
+    if (!keyword.trim() || !location.trim()) {
+      setStatus({ type: 'error', message: 'Please enter a keyword and a target location.' });
       return;
     }
     setLoading(true);
     setStatus(null);
 
     try {
-      // 1. Fetch from Google Places
+      // 1. Fetch from Google Places (API key is read server-side from env)
       const scrapeRes  = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, keyword, location, radius }),
+        body: JSON.stringify({ keyword, location, radius }),
       });
       const scrapeData = await scrapeRes.json();
 
@@ -185,35 +183,6 @@ export default function ScraperTab({ stats, onRefresh }) {
         <p className="label-xs mb-5">Configure Scrape</p>
 
         <div className="space-y-4">
-
-          {/* API Key */}
-          <div>
-            <label className="block label-xs mb-1.5">
-              <span className="flex items-center gap-1.5">
-                <KeyRound size={11} />
-                Google Places API Key
-              </span>
-            </label>
-            <div className="relative">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                placeholder="AIza..."
-                className="input-base pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted
-                           hover:text-ink-soft transition-colors"
-                tabIndex={-1}
-                aria-label={showKey ? 'Hide key' : 'Show key'}
-              >
-                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
 
           {/* Keyword + Location */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

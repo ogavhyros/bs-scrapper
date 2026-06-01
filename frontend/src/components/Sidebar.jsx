@@ -139,9 +139,9 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts }) {
       {/* Footer ────────────────────────────────────────────────────────────── */}
       <div className="px-5 py-4 border-t border-line flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-brand flex-shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-brand flex-shrink-0 animate-pulse" />
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-ink-soft truncate">Google Places API</p>
+            <p className="text-[11px] font-semibold text-brand truncate">API Connected ✓</p>
             <p className="text-[10px] text-ink-muted">Business Scout v1.0</p>
           </div>
         </div>
