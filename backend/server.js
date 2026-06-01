@@ -7,7 +7,10 @@ const jwt      = require('jsonwebtoken');
 const db       = require('./db');
 
 const app = express();
-app.use(cors({ origin: '*' }));
+app.use(cors({
+  origin: (origin, callback) => callback(null, true),
+  credentials: true,
+}));
 app.use(express.json());
 
 // Allow up to 2 minutes for long scrape operations
