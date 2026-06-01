@@ -4,6 +4,8 @@ import {
   Search, Loader2, MapPin, Radius,
 } from 'lucide-react';
 
+const API = import.meta.env.VITE_API_URL ?? '';
+
 // ── Priority stat cards ───────────────────────────────────────────────────────
 
 const PRIORITY_CARDS = [
@@ -117,7 +119,7 @@ export default function ScraperTab({ stats, onRefresh }) {
 
     try {
       // 1. POST to scrape endpoint — response is an SSE stream
-      const scrapeRes = await fetch('/api/scrape', {
+      const scrapeRes = await fetch(`${API}/api/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keyword, location, radius }),
@@ -169,7 +171,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       }
 
       // 3. Save to DB (INSERT OR IGNORE deduplication)
-      const saveRes  = await fetch('/api/contacts', {
+      const saveRes  = await fetch(`${API}/api/contacts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contacts: scrapeData.results }),
@@ -177,7 +179,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       const saveData = await saveRes.json();
 
       // 4. Log run
-      await fetch('/api/runs', {
+      await fetch(`${API}/api/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

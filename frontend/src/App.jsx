@@ -6,6 +6,8 @@ import HistoryTab  from './components/HistoryTab';
 import CRMTab      from './components/CRMTab';
 import { useToast, ToastContainer } from './components/Toast';
 
+const API = import.meta.env.VITE_API_URL ?? '';
+
 // ── Priority classifier (shared across tabs) ─────────────────────────────────
 export function getPriority(contact) {
   const p = Boolean(contact.phone);
@@ -33,17 +35,17 @@ export default function App() {
   const { toasts, showToast } = useToast();
 
   const fetchContacts = useCallback(async () => {
-    try { setContacts(await (await fetch('/api/contacts')).json()); }
+    try { setContacts(await (await fetch(`${API}/api/contacts`)).json()); }
     catch (e) { console.error('contacts:', e); }
   }, []);
 
   const fetchRuns = useCallback(async () => {
-    try { setRuns(await (await fetch('/api/runs')).json()); }
+    try { setRuns(await (await fetch(`${API}/api/runs`)).json()); }
     catch (e) { console.error('runs:', e); }
   }, []);
 
   const fetchCrm = useCallback(async () => {
-    try { setCrmContacts(await (await fetch('/api/crm')).json()); }
+    try { setCrmContacts(await (await fetch(`${API}/api/crm`)).json()); }
     catch (e) { console.error('crm:', e); }
   }, []);
 

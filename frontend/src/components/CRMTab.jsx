@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Phone, Globe, MapPin, Star, Trash2, Search } from 'lucide-react';
 
+const API = import.meta.env.VITE_API_URL ?? '';
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS   = ['Not Called', 'Called', 'Follow Up', 'Converted', 'Interested', 'Not Interested'];
@@ -307,7 +309,7 @@ export default function CRMTab({ crmContacts, onRefresh, showToast }) {
 
   const handleSave = useCallback(async (place_id, field, value) => {
     try {
-      await fetch(`/api/crm/${encodeURIComponent(place_id)}`, {
+      await fetch(`${API}/api/crm/${encodeURIComponent(place_id)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: value }),
@@ -320,7 +322,7 @@ export default function CRMTab({ crmContacts, onRefresh, showToast }) {
 
   const handleRemove = useCallback(async (place_id) => {
     try {
-      await fetch(`/api/crm/${encodeURIComponent(place_id)}`, { method: 'DELETE' });
+      await fetch(`${API}/api/crm/${encodeURIComponent(place_id)}`, { method: 'DELETE' });
       showToast('Removed from CRM', 'info');
       onRefresh();
     } catch {

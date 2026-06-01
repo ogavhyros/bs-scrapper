@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { getPriority } from '../App';
 
+const API = import.meta.env.VITE_API_URL ?? '';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const AVATAR_COLORS = [
@@ -253,7 +255,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
     const place_ids = [...selected];
     setMoving(true);
     try {
-      const res  = await fetch('/api/crm/add', {
+      const res  = await fetch(`${API}/api/crm/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ place_ids }),
@@ -269,13 +271,13 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
     }
   };
 
-  const handleExport = () => { window.location.href = '/api/export'; };
+  const handleExport = () => { window.location.href = `${API}/api/export`; };
 
   const handleClear = async () => {
     if (!window.confirm('Delete ALL contacts and run history?\nThis cannot be undone.')) return;
     setClearing(true);
     try {
-      await fetch('/api/clear', { method: 'DELETE' });
+      await fetch(`${API}/api/clear`, { method: 'DELETE' });
       await onRefresh();
       setSearch('');
       setFilter('all');
