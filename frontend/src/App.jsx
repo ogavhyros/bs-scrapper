@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import Sidebar     from './components/Sidebar';
-import ScraperTab  from './components/ScraperTab';
-import ContactsTab from './components/ContactsTab';
-import HistoryTab  from './components/HistoryTab';
-import CRMTab      from './components/CRMTab';
+import { AuthProvider, useAuth, getAuthHeader } from './context/AuthContext';
+import AuthPage      from './pages/AuthPage';
+import Sidebar       from './components/Sidebar';
+import ScraperTab    from './components/ScraperTab';
+import ContactsTab   from './components/ContactsTab';
+import HistoryTab    from './components/HistoryTab';
+import CRMTab        from './components/CRMTab';
 import { useToast, ToastContainer } from './components/Toast';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -25,40 +27,57 @@ const PAGE_META = {
   crm:      (s) => ({ title: 'CRM Tracker',     sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups`       }),
 };
 
-// ── App ───────────────────────────────────────────────────────────────────────
-export default function App() {
+// ── Loading spinner ───────────────────────────────────────────────────────────
+function LoadingSpinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-surface">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-[3px] border-brand border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-ink-muted">Loading…</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Main app (rendered only when authenticated) ───────────────────────────────
+function AppContent() {
+  const { user, isLoading, logout } = useAuth();
   const [activeTab,   setActiveTab]   = useState('scraper');
   const [contacts,    setContacts]    = useState([]);
   const [runs,        setRuns]        = useState([]);
   const [crmContacts, setCrmContacts] = useState([]);
-
   const { toasts, showToast } = useToast();
 
   const fetchContacts = useCallback(async () => {
-    try { setContacts(await (await fetch(`${API}/api/contacts`)).json()); }
+    try { setContacts(await (await fetch(`${API}/api/contacts`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('contacts:', e); }
   }, []);
 
   const fetchRuns = useCallback(async () => {
-    try { setRuns(await (await fetch(`${API}/api/runs`)).json()); }
+    try { setRuns(await (await fetch(`${API}/api/runs`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('runs:', e); }
   }, []);
 
   const fetchCrm = useCallback(async () => {
-    try { setCrmContacts(await (await fetch(`${API}/api/crm`)).json()); }
+    try { setCrmContacts(await (await fetch(`${API}/api/crm`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('crm:', e); }
   }, []);
 
   useEffect(() => {
-    fetchContacts();
-    fetchRuns();
-    fetchCrm();
-  }, [fetchContacts, fetchRuns, fetchCrm]);
+    if (user) {
+      fetchContacts();
+      fetchRuns();
+      fetchCrm();
+    }
+  }, [user, fetchContacts, fetchRuns, fetchCrm]);
 
   const refreshData = useCallback(
     () => Promise.all([fetchContacts(), fetchRuns(), fetchCrm()]),
     [fetchContacts, fetchRuns, fetchCrm],
   );
+
+  if (isLoading) return <LoadingSpinner />;
+  if (!user)     return <AuthPage />;
 
   const crmPlaceIds = new Set(crmContacts.map(c => c.place_id));
 
@@ -78,18 +97,16 @@ export default function App() {
   return (
     <div className="flex h-screen bg-surface overflow-hidden">
 
-      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         totalContacts={stats.total}
         crmCount={stats.crmTotal}
+        userEmail={user.email}
+        onLogout={logout}
       />
 
-      {/* ── Content shell ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-
-        {/* Top bar */}
         <header className="h-14 bg-panel border-b border-line flex items-center px-8 flex-shrink-0">
           <p className="text-sm text-ink-soft">
             Welcome back!{' '}
@@ -97,7 +114,6 @@ export default function App() {
           </p>
         </header>
 
-        {/* Scrollable page */}
         <main className="flex-1 overflow-y-auto">
           <div className="px-8 pt-7 pb-2">
             <h1 className="text-3xl font-bold text-ink leading-tight">{page.title}</h1>
@@ -128,5 +144,14 @@ export default function App() {
 
       <ToastContainer toasts={toasts} />
     </div>
+  );
+}
+
+// ── Root: wraps everything in AuthProvider ────────────────────────────────────
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

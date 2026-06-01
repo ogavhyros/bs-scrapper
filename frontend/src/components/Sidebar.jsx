@@ -1,6 +1,6 @@
 import {
   LayoutGrid, ShoppingBasket, Table2, UtensilsCrossed,
-  Layers, CalendarDays, Search, Phone,
+  Layers, CalendarDays, Search, Phone, LogOut,
 } from 'lucide-react';
 
 // ── Nav configuration ────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled }) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount }) {
+export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount, userEmail, onLogout }) {
   const ordersOpen = ['scraper', 'contacts', 'history'].includes(activeTab);
 
   return (
@@ -147,12 +147,21 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
 
       {/* Footer ────────────────────────────────────────────────────────────── */}
       <div className="px-5 py-4 border-t border-line flex-shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-2.5">
           <span className="w-2 h-2 rounded-full bg-brand flex-shrink-0 animate-pulse" />
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-brand truncate">API Connected ✓</p>
-            <p className="text-[10px] text-ink-muted">Business Scout v1.0</p>
-          </div>
+          <p className="text-[11px] font-semibold text-brand">API Connected ✓</p>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] text-ink-muted truncate flex-1 min-w-0">{userEmail}</p>
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-1 text-[12px] text-ink-muted hover:text-red-500
+                       hover:bg-red-50 px-2 py-1 rounded-nav transition-colors flex-shrink-0"
+            title="Logout"
+          >
+            <LogOut size={13} />
+            Logout
+          </button>
         </div>
       </div>
     </aside>

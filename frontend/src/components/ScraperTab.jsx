@@ -4,6 +4,8 @@ import {
   Search, Loader2, MapPin, Radius,
 } from 'lucide-react';
 
+import { getAuthHeader } from '../context/AuthContext';
+
 const API = import.meta.env.VITE_API_URL ?? '';
 
 // ── Priority stat cards ───────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       // 1. POST to scrape endpoint — response is an SSE stream
       const scrapeRes = await fetch(`${API}/api/scrape`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ keyword, location, radius }),
       });
 
@@ -173,7 +175,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       // 3. Save to DB (INSERT OR IGNORE deduplication)
       const saveRes  = await fetch(`${API}/api/contacts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ contacts: scrapeData.results }),
       });
       const saveData = await saveRes.json();
@@ -181,7 +183,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       // 4. Log run
       await fetch(`${API}/api/runs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({
           keyword, location,
           date:    new Date().toISOString().split('T')[0],

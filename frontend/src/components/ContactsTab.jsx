@@ -4,6 +4,7 @@ import {
   MapPin, Star, Flame, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { getPriority } from '../App';
+import { getAuthHeader } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL ?? '';
 
@@ -257,7 +258,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
     try {
       const res  = await fetch(`${API}/api/crm/add`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({ place_ids }),
       });
       const data = await res.json();
@@ -271,13 +272,25 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
     }
   };
 
-  const handleExport = () => { window.location.href = `${API}/api/export`; };
+  const handleExport = async () => {
+    try {
+      const res  = await fetch(`${API}/api/export`, { headers: getAuthHeader() });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `business_contacts_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error('Export failed:', e); }
+  };
 
   const handleClear = async () => {
     if (!window.confirm('Delete ALL contacts and run history?\nThis cannot be undone.')) return;
     setClearing(true);
     try {
-      await fetch(`${API}/api/clear`, { method: 'DELETE' });
+      await fetch(`${API}/api/clear`, { method: 'DELETE', headers: getAuthHeader() });
       await onRefresh();
       setSearch('');
       setFilter('all');

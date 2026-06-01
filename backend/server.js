@@ -3,6 +3,8 @@ const express  = require('express');
 const cors     = require('cors');
 const axios    = require('axios');
 const ExcelJS  = require('exceljs');
+const bcrypt   = require('bcryptjs');
+const jwt      = require('jsonwebtoken');
 const db       = require('./db');
 
 const app = express();
@@ -10,10 +12,73 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 const PLACES_BASE = 'https://maps.googleapis.com/maps/api/place';
+const JWT_SECRET  = process.env.JWT_SECRET || 'dev_secret_change_in_production';
+
+// ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  try {
+    req.user = jwt.verify(auth.split(' ')[1], JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// ─── AUTH ROUTES ──────────────────────────────────────────────────────────────
+
+// POST /api/auth/signup
+app.post('/api/auth/signup', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+  if (!password || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+  try {
+    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase());
+    if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
+    const hash = await bcrypt.hash(password, 10);
+    db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(email.toLowerCase(), hash);
+    res.json({ success: true, message: 'Account created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+    if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Invalid email or password.' });
+    db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, email: user.email, message: 'Login successful' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/auth/logout
+app.post('/api/auth/logout', (_req, res) => res.json({ success: true }));
+
+// GET /api/auth/me
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({ id: req.user.id, email: req.user.email });
+});
 
 // ─── POST /api/scrape ────────────────────────────────────────────────────────
 // Streams progress via SSE then sends a final "result" event.
-app.post('/api/scrape', async (req, res) => {
+app.post('/api/scrape', requireAuth, async (req, res) => {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   const { keyword, location, radius } = req.body;
 
@@ -137,7 +202,7 @@ app.post('/api/scrape', async (req, res) => {
 });
 
 // ─── GET /api/contacts ───────────────────────────────────────────────────────
-app.get('/api/contacts', (_req, res) => {
+app.get('/api/contacts', requireAuth, (_req, res) => {
   try {
     const rows = db.prepare('SELECT * FROM contacts ORDER BY created_at DESC').all();
     res.json(rows);
@@ -147,7 +212,7 @@ app.get('/api/contacts', (_req, res) => {
 });
 
 // ─── POST /api/contacts ──────────────────────────────────────────────────────
-app.post('/api/contacts', (req, res) => {
+app.post('/api/contacts', requireAuth, (req, res) => {
   const { contacts } = req.body;
   if (!Array.isArray(contacts) || contacts.length === 0) {
     return res.json({ added: 0, skipped: 0 });
@@ -183,7 +248,7 @@ app.post('/api/contacts', (req, res) => {
 });
 
 // ─── GET /api/runs ───────────────────────────────────────────────────────────
-app.get('/api/runs', (_req, res) => {
+app.get('/api/runs', requireAuth, (_req, res) => {
   try {
     const rows = db.prepare('SELECT * FROM runs ORDER BY created_at DESC').all();
     res.json(rows);
@@ -193,7 +258,7 @@ app.get('/api/runs', (_req, res) => {
 });
 
 // ─── POST /api/runs ──────────────────────────────────────────────────────────
-app.post('/api/runs', (req, res) => {
+app.post('/api/runs', requireAuth, (req, res) => {
   const { keyword, location, date, added, skipped, total } = req.body;
   try {
     const info = db.prepare(
@@ -206,7 +271,7 @@ app.post('/api/runs', (req, res) => {
 });
 
 // ─── GET /api/export ─────────────────────────────────────────────────────────
-app.get('/api/export', async (_req, res) => {
+app.get('/api/export', requireAuth, async (_req, res) => {
   try {
     const contacts = db.prepare('SELECT * FROM contacts ORDER BY created_at DESC').all();
 
@@ -250,32 +315,20 @@ app.get('/api/export', async (_req, res) => {
       { header: 'Priority',       key: 'priority', width: 10 },
     ];
 
-    // Header row: bold, green bg, white text
     ws2.getRow(1).eachCell(cell => {
       cell.font      = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
       cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF22C55E' } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
-    // Freeze top row
-    ws2.views = [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
-
-    // Auto-filter on header row
+    ws2.views     = [{ state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2', activeCell: 'A2' }];
     ws2.autoFilter = { from: 'A1', to: 'J1' };
 
-    // Data rows: alternating white / light gray, default "❌ Not Called"
     contacts.forEach((c, i) => {
-      const row       = ws2.addRow({
-        num:      i + 1,
-        name:     c.name  || '',
-        phone:    c.phone || '',
-        called:   '❌ Not Called',
-        callDate: '',
-        contact:  '',
-        outcome:  '',
-        notes:    '',
-        action:   '',
-        priority: '',
+      const row      = ws2.addRow({
+        num: i + 1, name: c.name || '', phone: c.phone || '',
+        called: '❌ Not Called', callDate: '', contact: '',
+        outcome: '', notes: '', action: '', priority: '',
       });
       const fillArgb = i % 2 === 0 ? 'FFFFFFFF' : 'FFF9FAFB';
       row.eachCell({ includeEmpty: true }, cell => {
@@ -284,24 +337,11 @@ app.get('/api/export', async (_req, res) => {
       });
     });
 
-    // Dropdown data validations
     const dvLast = Math.max(contacts.length + 1, 2);
-    ws2.dataValidations.add(`D2:D${dvLast}`, {
-      type: 'list', allowBlank: true, showErrorMessage: false,
-      formulae: ['"✅ Called,❌ Not Called,🔄 Follow Up"'],
-    });
-    ws2.dataValidations.add(`G2:G${dvLast}`, {
-      type: 'list', allowBlank: true, showErrorMessage: false,
-      formulae: ['"Interested,Not Interested,No Answer,Voicemail,Wrong Number"'],
-    });
-    ws2.dataValidations.add(`I2:I${dvLast}`, {
-      type: 'list', allowBlank: true, showErrorMessage: false,
-      formulae: ['"Send Proposal,Call Again,Remove,Converted"'],
-    });
-    ws2.dataValidations.add(`J2:J${dvLast}`, {
-      type: 'list', allowBlank: true, showErrorMessage: false,
-      formulae: ['"Hot,Warm,Cold"'],
-    });
+    ws2.dataValidations.add(`D2:D${dvLast}`, { type: 'list', allowBlank: true, showErrorMessage: false, formulae: ['"✅ Called,❌ Not Called,🔄 Follow Up"'] });
+    ws2.dataValidations.add(`G2:G${dvLast}`, { type: 'list', allowBlank: true, showErrorMessage: false, formulae: ['"Interested,Not Interested,No Answer,Voicemail,Wrong Number"'] });
+    ws2.dataValidations.add(`I2:I${dvLast}`, { type: 'list', allowBlank: true, showErrorMessage: false, formulae: ['"Send Proposal,Call Again,Remove,Converted"'] });
+    ws2.dataValidations.add(`J2:J${dvLast}`, { type: 'list', allowBlank: true, showErrorMessage: false, formulae: ['"Hot,Warm,Cold"'] });
 
     const buf     = await wb.xlsx.writeBuffer();
     const dateStr = new Date().toISOString().split('T')[0];
@@ -316,7 +356,7 @@ app.get('/api/export', async (_req, res) => {
 });
 
 // ─── DELETE /api/clear ───────────────────────────────────────────────────────
-app.delete('/api/clear', (_req, res) => {
+app.delete('/api/clear', requireAuth, (_req, res) => {
   try {
     db.exec('DELETE FROM contacts');
     db.exec('DELETE FROM runs');
@@ -334,7 +374,7 @@ const ALLOWED_CRM_FIELDS = new Set([
 ]);
 
 // GET /api/crm/stats
-app.get('/api/crm/stats', (_req, res) => {
+app.get('/api/crm/stats', requireAuth, (_req, res) => {
   try {
     const rows  = db.prepare('SELECT status, COUNT(*) as count FROM crm_contacts GROUP BY status').all();
     const total = db.prepare('SELECT COUNT(*) as count FROM crm_contacts').get()?.count ?? 0;
@@ -353,14 +393,14 @@ app.get('/api/crm/stats', (_req, res) => {
 });
 
 // GET /api/crm
-app.get('/api/crm', (_req, res) => {
+app.get('/api/crm', requireAuth, (_req, res) => {
   try {
     res.json(db.prepare('SELECT * FROM crm_contacts ORDER BY moved_at DESC').all());
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // POST /api/crm/add
-app.post('/api/crm/add', (req, res) => {
+app.post('/api/crm/add', requireAuth, (req, res) => {
   const { place_ids } = req.body;
   if (!Array.isArray(place_ids) || place_ids.length === 0) return res.json({ added: 0, skipped: 0 });
 
@@ -393,7 +433,7 @@ app.post('/api/crm/add', (req, res) => {
 });
 
 // PATCH /api/crm/:place_id
-app.patch('/api/crm/:place_id', (req, res) => {
+app.patch('/api/crm/:place_id', requireAuth, (req, res) => {
   const { place_id } = req.params;
   const fields = Object.keys(req.body).filter(k => ALLOWED_CRM_FIELDS.has(k));
   if (fields.length === 0) return res.json({ updated: 0 });
@@ -407,7 +447,7 @@ app.patch('/api/crm/:place_id', (req, res) => {
 });
 
 // DELETE /api/crm/:place_id
-app.delete('/api/crm/:place_id', (req, res) => {
+app.delete('/api/crm/:place_id', requireAuth, (req, res) => {
   const { place_id } = req.params;
   try {
     const info = db.prepare('DELETE FROM crm_contacts WHERE place_id = ?').run(place_id);

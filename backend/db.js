@@ -45,6 +45,16 @@ db.exec(`
 `);
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_login    DATETIME
+  )
+`);
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS crm_contacts (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     contact_id     INTEGER,
