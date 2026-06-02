@@ -159,6 +159,7 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
 // ── LinkedInTab ───────────────────────────────────────────────────────────────
 
 export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) {
+  const [company,  setCompany]  = useState('');
   const [keyword,  setKeyword]  = useState('');
   const [location, setLocation] = useState('');
   const [limit,    setLimit]    = useState(25);
@@ -182,17 +183,18 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
   }), [linkedinContacts]);
 
   const handleSearch = async () => {
-    if (!keyword.trim() || !location.trim()) {
-      setStatus({ type: 'error', message: 'Please enter a job role and a location.' });
+    if (!company.trim()) {
+      setStatus({ type: 'error', message: 'Please enter a company name or domain (e.g. dangote.com).' });
       return;
     }
     setLoading(true);
-    setStatus({ type: 'info', message: `Searching for "${keyword}" professionals in ${location}…` });
+    const roleLabel = keyword.trim() ? `"${keyword}" employees` : 'employees';
+    setStatus({ type: 'info', message: `Searching for ${roleLabel} at ${company}…` });
     try {
       const res  = await fetch(`${API}/api/linkedin/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ keyword, location, limit }),
+        body: JSON.stringify({ company_website: company, keyword, location, limit }),
       });
       const data = await res.json();
       if (!res.ok) { setStatus({ type: 'error', message: data.error || 'Search failed.' }); return; }
@@ -265,13 +267,13 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
           <Info size={18} className="flex-shrink-0 mt-0.5" style={{ color: BLUE }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold" style={{ color: '#1e40af' }}>
-              LinkedIn scraping requires an Apollo API key.
+              LinkedIn scraping requires a NinjaPear API key.
             </p>
             <p className="text-[13px] text-ink-soft mt-0.5">
-              Get yours at apollo.io — People Search requires a paid plan.
+              Get yours at nubela.co — sign up for free credits.
             </p>
           </div>
-          <a href="https://apollo.io" target="_blank" rel="noopener noreferrer"
+          <a href="https://nubela.co" target="_blank" rel="noopener noreferrer"
             className="px-3 py-1.5 rounded-nav text-xs font-semibold text-white flex-shrink-0"
             style={{ backgroundColor: BLUE }}>
             Setup Guide
@@ -287,18 +289,24 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="block label-xs mb-1.5">Company Name / Domain <span className="text-red-400">*</span></label>
+            <input type="text" value={company} onChange={e => setCompany(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSearch()}
+              placeholder="e.g. dangote.com, mtn.com" className="input-base" />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block label-xs mb-1.5">Job Title / Role</label>
+              <label className="block label-xs mb-1.5">Job Role <span className="text-ink-muted normal-case font-normal">(optional)</span></label>
               <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. Marketing Manager, CEO, Sales Director" className="input-base" />
+                placeholder="e.g. manager, engineer, director" className="input-base" />
             </div>
             <div>
-              <label className="block label-xs mb-1.5">Location</label>
+              <label className="block label-xs mb-1.5">Location <span className="text-ink-muted normal-case font-normal">(optional)</span></label>
               <input type="text" value={location} onChange={e => setLocation(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. Lagos Nigeria, London UK" className="input-base" />
+                placeholder="e.g. Nigeria, United Kingdom" className="input-base" />
             </div>
           </div>
 
@@ -355,7 +363,7 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
         <div className="card py-20 text-center">
           <LinkedInIcon size={36} className="mx-auto mb-4" style={{ color: '#cbd5e1' }} />
           <p className="text-ink-soft text-sm font-medium">No LinkedIn contacts yet.</p>
-          <p className="text-ink-muted text-xs mt-1">Search by job role and location above to get started.</p>
+          <p className="text-ink-muted text-xs mt-1">Enter a company above to find its employees.</p>
         </div>
       ) : (
         <div className="space-y-3">
