@@ -66,7 +66,7 @@ export default function AuthPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#f8f9fa' }}>
-      <div className="w-full max-w-[400px] bg-white rounded-2xl shadow-card-lg px-8 py-8 mx-4">
+      <div className="w-full max-w-[400px] bg-white rounded-2xl shadow-card-lg px-6 py-7 sm:px-8 sm:py-8 mx-4">
 
         {/* ── Logo ───────────────────────────────────────────────────────── */}
         <div className="text-center mb-7">
@@ -118,7 +118,7 @@ export default function AuthPage() {
               </div>
             </div>
             {error && <p className="text-[13px] text-red-500 font-medium">{error}</p>}
-            <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-2.5">
+            <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 lg:py-2.5 text-base lg:text-sm">
               {loading ? 'Logging in…' : 'Login'}
             </button>
             <p className="text-center text-[13px] text-ink-muted">
@@ -169,7 +169,7 @@ export default function AuthPage() {
             </div>
             {error   && <p className="text-[13px] text-red-500   font-medium">{error}</p>}
             {success && <p className="text-[13px] text-green-600 font-medium">{success}</p>}
-            <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-2.5">
+            <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 lg:py-2.5 text-base lg:text-sm">
               {loading ? 'Creating account…' : 'Create Account'}
             </button>
             <p className="text-center text-[13px] text-ink-muted">

@@ -26,6 +26,21 @@ html, body {
 /* ── Select option fix ───────────────────────────────────────────────────── */
 select option { background-color: #fff; color: #1a1a1a; }
 
+/* ── Mobile globals ──────────────────────────────────────────────────────── */
+html { scroll-behavior: smooth; }
+
+/* Prevent iOS auto-zoom on input focus (requires ≥16px font-size) */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* ── Utility classes ─────────────────────────────────────────────────────── */
 @layer utilities {
   .card {

@@ -190,8 +190,8 @@ export default function ScraperTab({ stats, onRefresh }) {
   return (
     <div className="space-y-5">
 
-      {/* ── Priority stat row ───────────────────────────────────────────── */}
-      <div className="flex gap-4">
+      {/* ── Priority stat row: 2×2 on mobile, 4-in-a-row on desktop ──────── */}
+      <div className="grid grid-cols-2 lg:flex gap-3 lg:gap-4">
         {PRIORITY_CARDS.map(cfg => (
           <PriorityCard key={cfg.key} config={cfg} count={stats[cfg.key] ?? stats.total} />
         ))}
@@ -205,7 +205,7 @@ export default function ScraperTab({ stats, onRefresh }) {
         <div className="space-y-4">
 
           {/* Keyword + Location */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
             <div>
               <label className="block label-xs mb-1.5">
                 <span className="flex items-center gap-1.5">
@@ -241,7 +241,7 @@ export default function ScraperTab({ stats, onRefresh }) {
           </div>
 
           {/* Radius */}
-          <div className="max-w-xs">
+          <div className="w-full lg:max-w-xs">
             <label className="block label-xs mb-1.5">
               <span className="flex items-center gap-1.5">
                 <Radius size={11} />
@@ -261,7 +261,7 @@ export default function ScraperTab({ stats, onRefresh }) {
 
           {/* Submit */}
           <div className="pt-1">
-            <button onClick={handleScrape} disabled={loading} className="btn-primary px-6">
+            <button onClick={handleScrape} disabled={loading} className="btn-primary w-full lg:w-auto px-6">
               {loading ? (
                 <>
                   <Loader2 size={15} className="animate-spin" />
@@ -283,7 +283,7 @@ export default function ScraperTab({ stats, onRefresh }) {
       {/* ── Tips card ───────────────────────────────────────────────────── */}
       <div className="card px-6 py-4">
         <p className="label-xs mb-3">Tips</p>
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-1.5 text-sm text-ink-soft">
+        <ul className="grid grid-cols-1 lg:grid-cols-2 gap-x-10 gap-y-1.5 text-sm text-ink-soft">
           <li className="flex gap-2 items-start">
             <span className="text-ink-ghost mt-0.5">·</span>
             Be specific: "plumbers Austin" works better than "services"

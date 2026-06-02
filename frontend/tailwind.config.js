@@ -2,6 +2,13 @@
 export default {
   content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
   theme: {
+    screens: {
+      'sm':  '375px',
+      'md':  '428px',
+      'lg':  '769px',
+      'xl':  '1024px',
+      '2xl': '1280px',
+    },
     extend: {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],

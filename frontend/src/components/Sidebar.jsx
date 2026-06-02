@@ -73,8 +73,8 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
   const ordersOpen = ['scraper', 'contacts', 'history'].includes(activeTab);
 
   return (
-    <aside className="w-sidebar min-w-sidebar h-screen bg-panel border-r border-line
-                      flex flex-col flex-shrink-0 overflow-hidden">
+    <aside className="hidden lg:flex w-sidebar min-w-sidebar h-screen bg-panel border-r border-line
+                      flex-col flex-shrink-0 overflow-hidden">
 
       {/* Logo ──────────────────────────────────────────────────────────────── */}
       <div className="px-5 py-5 border-b border-line flex-shrink-0">

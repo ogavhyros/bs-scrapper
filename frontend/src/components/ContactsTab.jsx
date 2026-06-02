@@ -53,10 +53,10 @@ function BusinessCard({ contact, index, selected, onToggle, inCrm }) {
 
   return (
     <div
-      className={`card p-5 border-l-[3px] hover:shadow-card-lg transition-all duration-150 cursor-default
+      className={`card p-3 lg:p-5 border-l-[3px] hover:shadow-card-lg transition-all duration-150 cursor-default
                   ${selected ? 'border-l-brand bg-green-50/30' : 'border-l-transparent hover:border-l-amber-400'}`}
     >
-      <div className="flex gap-4">
+      <div className="flex gap-2 lg:gap-4">
 
         {/* ── Checkbox ─────────────────────────────────────────────────── */}
         <div className="flex items-start pt-1.5 flex-shrink-0">
@@ -304,7 +304,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
 
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
       <div className="card px-4 py-3">
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center">
 
           {/* Select All + Search */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -356,17 +356,19 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
               onClick={handleExport}
               disabled={contacts.length === 0}
               className="btn-primary"
+              title="Export Excel"
             >
               <Download size={15} />
-              Export Excel
+              <span className="hidden lg:inline">Export Excel</span>
             </button>
             <button
               onClick={handleClear}
               disabled={clearing || contacts.length === 0}
               className="btn-ghost hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+              title="Clear All"
             >
               <Trash2 size={15} />
-              Clear All
+              <span className="hidden lg:inline">Clear All</span>
             </button>
           </div>
         </div>

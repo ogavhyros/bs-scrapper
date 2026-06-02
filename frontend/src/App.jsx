@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Search } from 'lucide-react';
 import { AuthProvider, useAuth, getAuthHeader } from './context/AuthContext';
 import AuthPage      from './pages/AuthPage';
 import Sidebar       from './components/Sidebar';
+import BottomNav     from './components/BottomNav';
 import ScraperTab    from './components/ScraperTab';
 import ContactsTab   from './components/ContactsTab';
 import HistoryTab    from './components/HistoryTab';
@@ -22,9 +24,9 @@ export function getPriority(contact) {
 // ── Page metadata ─────────────────────────────────────────────────────────────
 const PAGE_META = {
   scraper:  (s) => ({ title: 'Contact Scraper', sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · up to 100 per search (5 pages × 20)`   }),
-  contacts: (s) => ({ title: 'All Contacts',    sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records`           }),
-  history:  (s) => ({ title: 'Analytics',       sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history`                       }),
-  crm:      (s) => ({ title: 'CRM Tracker',     sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups`       }),
+  contacts: (s) => ({ title: 'All Contacts',    sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records`                         }),
+  history:  (s) => ({ title: 'Analytics',       sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history`                                      }),
+  crm:      (s) => ({ title: 'CRM Tracker',     sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups`                      }),
 };
 
 // ── Loading spinner ───────────────────────────────────────────────────────────
@@ -97,6 +99,7 @@ function AppContent() {
   return (
     <div className="flex h-screen bg-surface overflow-hidden">
 
+      {/* ── Desktop sidebar (hidden on mobile) ───────────────────────────── */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -106,21 +109,46 @@ function AppContent() {
         onLogout={logout}
       />
 
+      {/* ── Content area ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-14 bg-panel border-b border-line flex items-center px-8 flex-shrink-0">
-          <p className="text-sm text-ink-soft">
+
+        {/* Header — responsive */}
+        <header className="flex-shrink-0 h-14 bg-panel border-b border-line flex items-center justify-between px-4 lg:px-8">
+          {/* Mobile: logo */}
+          <div className="flex items-center gap-2 lg:hidden">
+            <div className="w-7 h-7 bg-brand rounded-nav flex items-center justify-center">
+              <Search size={13} className="text-white" />
+            </div>
+            <span className="text-[17px] font-extrabold text-brand tracking-tight leading-none">
+              Business Scout
+            </span>
+          </div>
+          {/* Desktop: welcome message */}
+          <p className="hidden lg:block text-sm text-ink-soft">
             Welcome back!{' '}
             <span className="text-ink font-medium">Here's what your scraper has collected.</span>
           </p>
+          {/* Mobile: user avatar */}
+          <div
+            className="w-8 h-8 rounded-full bg-brand flex items-center justify-center
+                       text-white text-sm font-bold flex-shrink-0 lg:hidden"
+          >
+            {user.email[0].toUpperCase()}
+          </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="px-8 pt-7 pb-2">
-            <h1 className="text-3xl font-bold text-ink leading-tight">{page.title}</h1>
+        {/* Scrollable page content */}
+        <main
+          className="flex-1 overflow-y-auto"
+          style={{ overscrollBehavior: 'contain' }}
+        >
+          <div className="px-4 lg:px-8 pt-6 lg:pt-7 pb-2">
+            <h1 className="text-2xl lg:text-3xl font-bold text-ink leading-tight">{page.title}</h1>
             <p className="text-sm text-ink-soft mt-1">{page.sub}</p>
           </div>
 
-          <div className="px-8 pb-8 pt-5">
+          {/* Tab content — extra bottom padding on mobile for bottom nav */}
+          <div className="px-4 lg:px-8 pb-28 lg:pb-8 pt-4 lg:pt-5">
             {activeTab === 'scraper'  && <ScraperTab  stats={stats} onRefresh={refreshData} />}
             {activeTab === 'contacts' && (
               <ContactsTab
@@ -142,12 +170,15 @@ function AppContent() {
         </main>
       </div>
 
+      {/* ── Mobile bottom nav (hidden on desktop) ────────────────────────── */}
+      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+
       <ToastContainer toasts={toasts} />
     </div>
   );
 }
 
-// ── Root: wraps everything in AuthProvider ────────────────────────────────────
+// ── Root ──────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
     <AuthProvider>

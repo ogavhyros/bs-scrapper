@@ -54,7 +54,7 @@ function RunCard({ run, index }) {
         </div>
 
         {/* Right: stats */}
-        <div className="flex gap-4 flex-shrink-0">
+        <div className="flex gap-3 lg:gap-4 flex-shrink-0 flex-wrap justify-end">
           <div className="text-center">
             <div className="flex items-center gap-1 justify-center">
               <PlusCircle size={12} className="text-normal-text" />
@@ -115,7 +115,7 @@ export default function HistoryTab({ runs }) {
     <div className="space-y-5">
 
       {/* ── Summary cards ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {[
           { label: 'Total Runs',    value: runs.length, color: '#374151', bg: '#f3f4f6', border: '#e5e7eb' },
           { label: 'Total Added',   value: totalAdded,  color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },

@@ -64,8 +64,8 @@ function CRMCard({ c, savedKey, onChange, onSave, onBlurSave, onRemove }) {
   );
 
   return (
-    <div className="card p-5 hover:shadow-card-lg transition-shadow duration-150">
-      <div className="flex gap-5">
+    <div className="card p-4 lg:p-5 hover:shadow-card-lg transition-shadow duration-150">
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-5">
 
         {/* ── Left: Business info ──────────────────────────────────────── */}
         <div className="flex gap-3.5 flex-1 min-w-0">
@@ -137,11 +137,11 @@ function CRMCard({ c, savedKey, onChange, onSave, onBlurSave, onRemove }) {
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="w-px bg-line flex-shrink-0 self-stretch" />
+        {/* Divider — desktop only */}
+        <div className="hidden lg:block w-px bg-line flex-shrink-0 self-stretch" />
 
         {/* ── Right: Inline edit fields ─────────────────────────────────── */}
-        <div className="w-[350px] flex-shrink-0 space-y-2.5">
+        <div className="w-full lg:w-[350px] lg:flex-shrink-0 space-y-2.5">
 
           {/* Status + Priority */}
           <div className="grid grid-cols-2 gap-2">
@@ -347,12 +347,12 @@ export default function CRMTab({ crmContacts, onRefresh, showToast }) {
   return (
     <div className="space-y-5">
 
-      {/* ── Stats bar ───────────────────────────────────────────────────── */}
-      <div className="flex gap-4">
+      {/* ── Stats bar: horizontal scroll on mobile ──────────────────────── */}
+      <div className="flex gap-3 lg:gap-4 overflow-x-auto pb-1 lg:pb-0">
         {STAT_CARDS.map(({ key, label, color, bg, border }) => (
           <div
             key={key}
-            className="flex-1 min-w-0 rounded-card p-4 border text-center"
+            className="min-w-[88px] flex-shrink-0 lg:flex-1 lg:min-w-0 rounded-card p-3 lg:p-4 border text-center"
             style={{ backgroundColor: bg, borderColor: border }}
           >
             <div className="text-2xl font-bold tabular-nums" style={{ color }}>
