@@ -471,36 +471,37 @@ app.get('/api/linkedin/config', requireAuth, (_req, res) => {
   res.json({ hasKey: Boolean(linkedinApiKey()) });
 });
 
-// POST /api/linkedin/scrape — NinjaPear Employee Search (company-based)
+// POST /api/linkedin/scrape — person search by Job Role + Location
 app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   const apiKey = linkedinApiKey();
-  if (!apiKey) return res.status(400).json({ error: 'No NinjaPear API key is set on the server.' });
+  if (!apiKey) return res.status(400).json({ error: 'NinjaPear API key not configured on server.' });
 
-  const { company_website, keyword, location } = req.body; // keyword = job role (optional)
-  let   limit = parseInt(req.body.limit, 10) || 25;
+  const { keyword, location } = req.body; // keyword = job role
+  let   limit = parseInt(req.body.limit, 10) || 10;
   limit = Math.min(Math.max(limit, 1), 100);
 
-  const domain = normaliseDomain(company_website || '');
-  if (!domain) return res.status(400).json({ error: 'A company website is required (e.g. stripe.com).' });
+  if (!keyword || !keyword.trim()) return res.status(400).json({ error: 'Job role is required.' });
+  if (!location || !location.trim()) return res.status(400).json({ error: 'Location is required.' });
 
   const today = new Date().toISOString().split('T')[0];
 
   try {
-    const params = { company_website: domain };
-    if (keyword) params.role = keyword;
-    const countryCode = toCountryCode(location || '');
-    if (countryCode) params.country = countryCode; // NinjaPear needs an ISO alpha-2 code
+    const params = {
+      current_role_title: keyword,
+      page_size: Math.min(limit, 10),
+      enrich_profiles: 'enrich',
+    };
+    const countryCode = toCountryCode(location);
+    if (countryCode) params.country = countryCode;
+    const cityName = location.split(',')[0].trim();
+    if (cityName) params.city = cityName;
 
-    const searchRes = await axios.get(`${NINJAPEAR_BASE}/employee/search`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      params,
-      timeout: 30000,
-    });
+    const response = await axios.get(
+      'https://nubela.co/proxycurl/api/v2/search/person',
+      { headers: { Authorization: `Bearer ${apiKey}` }, params, timeout: 30000 },
+    );
 
-    const data      = searchRes.data || {};
-    const employees = data.employees || data.results || [];
-    const collected = employees.slice(0, limit);
-    const company   = companyNameFromDomain(domain);
+    const profiles = response.data.results || [];
 
     const insert = db.prepare(`
       INSERT OR IGNORE INTO linkedin_contacts
@@ -515,33 +516,30 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
     db.exec('BEGIN');
     try {
-      for (const e of collected) {
-        const first = e.first_name || null;
-        const last  = e.last_name  || null;
-        const role  = e.role || e.title || keyword || null;
-        // NinjaPear returns an enrichment URL per employee; use it as the dedup key.
-        const profileUrl = e.person_profile || e.profile_url
-          || [first, last, domain].filter(Boolean).join('-').toLowerCase().replace(/\s+/g, '-');
-        if (!first && !last) { skipped++; continue; }
+      for (const item of profiles) {
+        const p          = item.profile || item;
+        const profileUrl = item.linkedin_profile_url || p.public_identifier || p.profile_url || null;
+        if (!profileUrl) { skipped++; continue; }
 
+        const exp = (p.experiences && p.experiences[0]) || {};
         const contact = {
           profile_url:       profileUrl,
-          full_name:         [first, last].filter(Boolean).join(' ') || null,
-          first_name:        first,
-          last_name:         last,
-          headline:          role,
-          current_company:   e.company_name || company,
-          current_title:     role,
-          location:          location || null,
-          email:             e.work_email || null,   // only present if NinjaPear inlined it
-          phone:             null,                    // requires separate enrichment call
-          linkedin_url:      null,                    // NinjaPear does not return public LinkedIn URLs
-          profile_picture:   null,
-          connections:       null,
-          summary:           null,
+          full_name:         p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
+          first_name:        p.first_name || null,
+          last_name:         p.last_name  || null,
+          headline:          p.headline   || p.occupation || null,
+          current_company:   exp.company  || p.current_company || null,
+          current_title:     exp.title    || p.occupation || keyword || null,
+          location:          [p.city, p.state, p.country_full_name].filter(Boolean).join(', ') || location,
+          email:             (p.personal_emails && p.personal_emails[0]) || null,
+          phone:             (p.personal_numbers && p.personal_numbers[0]) || null,
+          linkedin_url:      profileUrl,
+          profile_picture:   p.profile_pic_url || null,
+          connections:       p.connections ?? null,
+          summary:           p.summary || null,
           scraped_date:      today,
-          keyword_searched:  keyword || '',
-          location_searched: location || '',
+          keyword_searched:  keyword,
+          location_searched: location,
         };
 
         const info = insert.run(
@@ -559,7 +557,7 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
       throw err;
     }
 
-    res.json({ added, skipped, total_found: collected.length, contacts: mapped });
+    res.json({ added, skipped, total_found: profiles.length, contacts: mapped });
   } catch (err) {
     const status = err.response?.status;
     const data   = err.response?.data;

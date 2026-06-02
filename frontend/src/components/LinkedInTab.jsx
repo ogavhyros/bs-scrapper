@@ -159,7 +159,6 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
 // ── LinkedInTab ───────────────────────────────────────────────────────────────
 
 export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) {
-  const [company,  setCompany]  = useState('');
   const [keyword,  setKeyword]  = useState('');
   const [location, setLocation] = useState('');
   const [limit,    setLimit]    = useState(25);
@@ -183,18 +182,17 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
   }), [linkedinContacts]);
 
   const handleSearch = async () => {
-    if (!company.trim()) {
-      setStatus({ type: 'error', message: 'Please enter a company website (e.g. stripe.com).' });
+    if (!keyword.trim() || !location.trim()) {
+      setStatus({ type: 'error', message: 'Please enter a job role and a location.' });
       return;
     }
     setLoading(true);
-    const roleLabel = keyword.trim() ? `"${keyword}" employees` : 'employees';
-    setStatus({ type: 'info', message: `Searching for ${roleLabel} at ${company}…` });
+    setStatus({ type: 'info', message: `Searching for "${keyword}" professionals in ${location}…` });
     try {
       const res  = await fetch(`${API}/api/linkedin/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ company_website: company, keyword, location, limit }),
+        body: JSON.stringify({ keyword, location, limit }),
       });
       const data = await res.json();
       if (!res.ok) { setStatus({ type: 'error', message: data.error || 'Search failed.' }); return; }
@@ -289,24 +287,18 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
         </div>
 
         <div className="space-y-4">
-          <div>
-            <label className="block label-xs mb-1.5">Company Website <span className="text-red-400">*</span></label>
-            <input type="text" value={company} onChange={e => setCompany(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              placeholder="e.g. stripe.com, microsoft.com" className="input-base" />
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block label-xs mb-1.5">Job Role <span className="text-ink-muted normal-case font-normal">(optional)</span></label>
+              <label className="block label-xs mb-1.5">Job Title / Role</label>
               <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. Marketing Manager, Sales Director" className="input-base" />
+                placeholder="e.g. Marketing Manager, CEO, Sales Director" className="input-base" />
             </div>
             <div>
-              <label className="block label-xs mb-1.5">Location <span className="text-ink-muted normal-case font-normal">(optional)</span></label>
+              <label className="block label-xs mb-1.5">Location</label>
               <input type="text" value={location} onChange={e => setLocation(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. Nigeria, United Kingdom" className="input-base" />
+                placeholder="e.g. Lagos Nigeria, London UK" className="input-base" />
             </div>
           </div>
 
@@ -363,7 +355,7 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
         <div className="card py-20 text-center">
           <LinkedInIcon size={36} className="mx-auto mb-4" style={{ color: '#cbd5e1' }} />
           <p className="text-ink-soft text-sm font-medium">No LinkedIn contacts yet.</p>
-          <p className="text-ink-muted text-xs mt-1">Enter a company website above to find its employees.</p>
+          <p className="text-ink-muted text-xs mt-1">Search by job role and location above to get started.</p>
         </div>
       ) : (
         <div className="space-y-3">
