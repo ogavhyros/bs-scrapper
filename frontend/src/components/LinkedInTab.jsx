@@ -265,13 +265,13 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
           <Info size={18} className="flex-shrink-0 mt-0.5" style={{ color: BLUE }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold" style={{ color: '#1e40af' }}>
-              LinkedIn scraping requires a NinjaPear API key.
+              LinkedIn scraping requires an Apollo API key.
             </p>
             <p className="text-[13px] text-ink-soft mt-0.5">
-              Get yours at nubela.co — sign up for free credits.
+              Get yours at apollo.io — People Search requires a paid plan.
             </p>
           </div>
-          <a href="https://nubela.co" target="_blank" rel="noopener noreferrer"
+          <a href="https://apollo.io" target="_blank" rel="noopener noreferrer"
             className="px-3 py-1.5 rounded-nav text-xs font-semibold text-white flex-shrink-0"
             style={{ backgroundColor: BLUE }}>
             Setup Guide

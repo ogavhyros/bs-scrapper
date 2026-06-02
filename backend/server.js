@@ -419,8 +419,8 @@ app.delete('/api/crm/:place_id', requireAuth, (req, res) => {
 // NinjaPear's Employee Search returns employees of a company, optionally filtered
 // by role + geography. Base URL https://nubela.co/api/v1. Proxycurl was sunset.
 
-const NINJAPEAR_BASE = 'https://nubela.co/api/v1';
-const linkedinApiKey = () => process.env.NINJAPEAR_API_KEY || process.env.PROXYCURL_API_KEY || '';
+const APOLLO_SEARCH_URL = 'https://api.apollo.io/api/v1/mixed_people/search';
+const linkedinApiKey = () => process.env.APOLLO_API_KEY || '';
 
 // Country name → ISO 3166-1 alpha-2 (NinjaPear's `country` filter requires a code).
 const COUNTRY_CODES = {
@@ -471,10 +471,10 @@ app.get('/api/linkedin/config', requireAuth, (_req, res) => {
   res.json({ hasKey: Boolean(linkedinApiKey()) });
 });
 
-// POST /api/linkedin/scrape — person search by Job Role + Location
+// POST /api/linkedin/scrape — Apollo People Search by Job Role + Location
 app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   const apiKey = linkedinApiKey();
-  if (!apiKey) return res.status(400).json({ error: 'NinjaPear API key not configured on server.' });
+  if (!apiKey) return res.status(400).json({ error: 'Apollo API key not configured on server.' });
 
   const { keyword, location } = req.body; // keyword = job role
   let   limit = parseInt(req.body.limit, 10) || 10;
@@ -483,25 +483,27 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   if (!keyword || !keyword.trim()) return res.status(400).json({ error: 'Job role is required.' });
   if (!location || !location.trim()) return res.status(400).json({ error: 'Location is required.' });
 
-  const today = new Date().toISOString().split('T')[0];
+  const today   = new Date().toISOString().split('T')[0];
+  const perPage = Math.min(limit, 100);
 
   try {
-    const params = {
-      current_role_title: keyword,
-      page_size: Math.min(limit, 10),
-      enrich_profiles: 'enrich',
+    const body = {
+      person_titles:    [keyword],
+      person_locations: [location],
+      page:             1,
+      per_page:         perPage,
     };
-    const countryCode = toCountryCode(location);
-    if (countryCode) params.country = countryCode;
-    const cityName = location.split(',')[0].trim();
-    if (cityName) params.city = cityName;
 
-    const response = await axios.get(
-      'https://nubela.co/proxycurl/api/v2/search/person',
-      { headers: { Authorization: `Bearer ${apiKey}` }, params, timeout: 30000 },
-    );
+    const response = await axios.post(APOLLO_SEARCH_URL, body, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+        'X-Api-Key': apiKey,
+      },
+      timeout: 30000,
+    });
 
-    const profiles = response.data.results || [];
+    const people = response.data.people || response.data.contacts || [];
 
     const insert = db.prepare(`
       INSERT OR IGNORE INTO linkedin_contacts
@@ -516,27 +518,30 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
     db.exec('BEGIN');
     try {
-      for (const item of profiles) {
-        const p          = item.profile || item;
-        const profileUrl = item.linkedin_profile_url || p.public_identifier || p.profile_url || null;
+      for (const p of people) {
+        // Apollo person id is the stable dedup key; fall back to linkedin_url.
+        const profileUrl = p.id ? `apollo:${p.id}` : (p.linkedin_url || null);
         if (!profileUrl) { skipped++; continue; }
 
-        const exp = (p.experiences && p.experiences[0]) || {};
+        const org   = p.organization || {};
+        // Apollo locks emails behind enrichment; ignore its placeholder value.
+        const email = (p.email && !/email_not_unlocked/i.test(p.email) && p.email.includes('@')) ? p.email : null;
+
         const contact = {
           profile_url:       profileUrl,
-          full_name:         p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
+          full_name:         p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
           first_name:        p.first_name || null,
           last_name:         p.last_name  || null,
-          headline:          p.headline   || p.occupation || null,
-          current_company:   exp.company  || p.current_company || null,
-          current_title:     exp.title    || p.occupation || keyword || null,
-          location:          [p.city, p.state, p.country_full_name].filter(Boolean).join(', ') || location,
-          email:             (p.personal_emails && p.personal_emails[0]) || null,
-          phone:             (p.personal_numbers && p.personal_numbers[0]) || null,
-          linkedin_url:      profileUrl,
-          profile_picture:   p.profile_pic_url || null,
-          connections:       p.connections ?? null,
-          summary:           p.summary || null,
+          headline:          p.headline   || p.title || null,
+          current_company:   org.name     || p.organization_name || null,
+          current_title:     p.title      || keyword || null,
+          location:          [p.city, p.state, p.country].filter(Boolean).join(', ') || location,
+          email,
+          phone:             null,                       // search endpoint never returns phone
+          linkedin_url:      p.linkedin_url || null,
+          profile_picture:   p.photo_url    || null,
+          connections:       null,
+          summary:           p.headline     || null,
           scraped_date:      today,
           keyword_searched:  keyword,
           location_searched: location,
@@ -557,24 +562,27 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
       throw err;
     }
 
-    res.json({ added, skipped, total_found: profiles.length, contacts: mapped });
+    res.json({ added, skipped, total_found: people.length, contacts: mapped });
   } catch (err) {
     const status = err.response?.status;
     const data   = err.response?.data;
     let detail = err.message;
     if (typeof data === 'string') detail = data;
     else if (data && typeof data === 'object') {
-      detail = data.description || data.detail
-            || (typeof data.error === 'string' ? data.error : data.error?.message)
-            || data.message
-            || JSON.stringify(data);
+      detail = data.error || data.error_message || data.message || JSON.stringify(data);
     }
-    console.error('LinkedIn (NinjaPear) error:', status, detail);
-    if (status === 401 || status === 403) {
-      return res.status(400).json({ error: 'NinjaPear rejected the API key (invalid or out of credits).' });
+    console.error('LinkedIn (Apollo) error:', status, detail);
+    if (status === 401) {
+      return res.status(400).json({ error: 'Apollo rejected the API key (invalid).' });
     }
-    if (status === 400 || status === 404) {
-      return res.status(400).json({ error: `NinjaPear: ${detail}` });
+    if (status === 403) {
+      return res.status(400).json({ error: `Apollo: ${detail}` }); // e.g. paid-plan-required
+    }
+    if (status === 422 || status === 400) {
+      return res.status(400).json({ error: `Apollo: ${detail}` });
+    }
+    if (status === 429) {
+      return res.status(400).json({ error: 'Apollo rate limit reached — try again shortly.' });
     }
     res.status(500).json({ error: 'LinkedIn search failed: ' + detail });
   }
