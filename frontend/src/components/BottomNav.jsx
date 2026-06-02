@@ -1,10 +1,12 @@
 import { LayoutGrid, ShoppingBasket, Search, Phone, BarChart2 } from 'lucide-react';
+import LinkedInIcon from './LinkedInIcon';
 
 const ITEMS = [
   { id: 'scraper',  icon: LayoutGrid,     label: 'Home'      },
   { id: 'contacts', icon: ShoppingBasket, label: 'Contacts'  },
   { id: 'scraper',  icon: Search,         label: 'Scraper'   },
   { id: 'crm',      icon: Phone,          label: 'CRM'       },
+  { id: 'linkedin', icon: LinkedInIcon,   label: 'LinkedIn', activeColor: '#0077b5' },
   { id: 'history',  icon: BarChart2,      label: 'Analytics' },
 ];
 
@@ -15,8 +17,10 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {ITEMS.map((item, i) => {
-        const Icon     = item.icon;
-        const isActive = activeTab === item.id;
+        const Icon        = item.icon;
+        const isActive    = activeTab === item.id;
+        const activeColor = item.activeColor || '#22c55e';
+        const color       = isActive ? activeColor : '#9ca3af';
         return (
           <button
             key={i}
@@ -24,11 +28,8 @@ export default function BottomNav({ activeTab, setActiveTab }) {
             className="flex-1 flex flex-col items-center justify-center py-2 transition-colors"
             style={{ minHeight: '56px' }}
           >
-            <Icon size={21} style={{ color: isActive ? '#22c55e' : '#9ca3af' }} />
-            <span
-              className="text-[10px] font-medium mt-0.5"
-              style={{ color: isActive ? '#22c55e' : '#9ca3af' }}
-            >
+            <Icon size={20} style={{ color }} />
+            <span className="text-[9px] font-medium mt-0.5" style={{ color }}>
               {item.label}
             </span>
           </button>

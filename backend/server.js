@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express  = require('express');
 const cors     = require('cors');
+const axios    = require('axios');
 const ExcelJS  = require('exceljs');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
@@ -412,6 +413,233 @@ app.delete('/api/crm/:place_id', requireAuth, (req, res) => {
     const info = db.prepare('DELETE FROM crm_contacts WHERE place_id = ?').run(place_id);
     res.json({ deleted: info.changes });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── LINKEDIN ROUTES (NinjaPear — Proxycurl successor) ────────────────────────
+// NinjaPear's Employee Search returns employees of a company, optionally filtered
+// by role + geography. Base URL https://nubela.co/api/v1. Proxycurl was sunset.
+
+const NINJAPEAR_BASE = 'https://nubela.co/api/v1';
+const linkedinApiKey = () => process.env.NINJAPEAR_API_KEY || process.env.PROXYCURL_API_KEY || '';
+
+// Country name → ISO 3166-1 alpha-2 (NinjaPear's `country` filter requires a code).
+const COUNTRY_CODES = {
+  nigeria: 'NG', 'united states': 'US', usa: 'US', us: 'US', america: 'US',
+  'united kingdom': 'GB', uk: 'GB', england: 'GB', britain: 'GB',
+  canada: 'CA', australia: 'AU', germany: 'DE', france: 'FR', spain: 'ES',
+  italy: 'IT', netherlands: 'NL', india: 'IN', 'south africa': 'ZA',
+  ghana: 'GH', kenya: 'KE', ireland: 'IE', singapore: 'SG',
+  uae: 'AE', 'united arab emirates': 'AE', brazil: 'BR', mexico: 'MX',
+};
+
+// Returns a valid alpha-2 code or null. Accepts a 2-letter code as-is.
+function toCountryCode(location = '') {
+  const loc = location.trim().toLowerCase();
+  if (/^[a-z]{2}$/.test(loc)) return loc.toUpperCase();
+  for (const [name, code] of Object.entries(COUNTRY_CODES)) {
+    if (loc.includes(name)) return code;
+  }
+  return null;
+}
+
+// Normalise a company input ("https://www.stripe.com/" → "stripe.com")
+function normaliseDomain(input = '') {
+  return input.trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/^www\./i, '')
+    .replace(/\/.*$/, '')
+    .toLowerCase();
+}
+
+// Pretty company name from a domain ("stripe.com" → "Stripe")
+function companyNameFromDomain(domain = '') {
+  const base = domain.split('.')[0] || domain;
+  return base ? base.charAt(0).toUpperCase() + base.slice(1) : null;
+}
+
+const LINKEDIN_STATUSES = new Set(['Not Contacted', 'Contacted', 'Connected', 'Not Interested']);
+
+// GET /api/linkedin/contacts
+app.get('/api/linkedin/contacts', requireAuth, (_req, res) => {
+  try {
+    res.json(db.prepare('SELECT * FROM linkedin_contacts ORDER BY created_at DESC').all());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/linkedin/config — tells the frontend whether a key is present
+app.get('/api/linkedin/config', requireAuth, (_req, res) => {
+  res.json({ hasKey: Boolean(linkedinApiKey()) });
+});
+
+// POST /api/linkedin/scrape — NinjaPear Employee Search (company-based)
+app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
+  const apiKey = linkedinApiKey();
+  if (!apiKey) return res.status(400).json({ error: 'No NinjaPear API key is set on the server.' });
+
+  const { company_website, keyword, location } = req.body; // keyword = job role (optional)
+  let   limit = parseInt(req.body.limit, 10) || 25;
+  limit = Math.min(Math.max(limit, 1), 100);
+
+  const domain = normaliseDomain(company_website || '');
+  if (!domain) return res.status(400).json({ error: 'A company website is required (e.g. stripe.com).' });
+
+  const today = new Date().toISOString().split('T')[0];
+
+  try {
+    const params = { company_website: domain };
+    if (keyword) params.role = keyword;
+    const countryCode = toCountryCode(location || '');
+    if (countryCode) params.country = countryCode; // NinjaPear needs an ISO alpha-2 code
+
+    const searchRes = await axios.get(`${NINJAPEAR_BASE}/employee/search`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      params,
+      timeout: 30000,
+    });
+
+    const data      = searchRes.data || {};
+    const employees = data.employees || data.results || [];
+    const collected = employees.slice(0, limit);
+    const company   = companyNameFromDomain(domain);
+
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO linkedin_contacts
+        (profile_url, full_name, first_name, last_name, headline, current_company,
+         current_title, location, email, phone, linkedin_url, profile_picture,
+         connections, summary, scraped_date, keyword_searched, location_searched)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    let added = 0, skipped = 0;
+    const mapped = [];
+
+    db.exec('BEGIN');
+    try {
+      for (const e of collected) {
+        const first = e.first_name || null;
+        const last  = e.last_name  || null;
+        const role  = e.role || e.title || keyword || null;
+        // NinjaPear returns an enrichment URL per employee; use it as the dedup key.
+        const profileUrl = e.person_profile || e.profile_url
+          || [first, last, domain].filter(Boolean).join('-').toLowerCase().replace(/\s+/g, '-');
+        if (!first && !last) { skipped++; continue; }
+
+        const contact = {
+          profile_url:       profileUrl,
+          full_name:         [first, last].filter(Boolean).join(' ') || null,
+          first_name:        first,
+          last_name:         last,
+          headline:          role,
+          current_company:   e.company_name || company,
+          current_title:     role,
+          location:          location || null,
+          email:             e.work_email || null,   // only present if NinjaPear inlined it
+          phone:             null,                    // requires separate enrichment call
+          linkedin_url:      null,                    // NinjaPear does not return public LinkedIn URLs
+          profile_picture:   null,
+          connections:       null,
+          summary:           null,
+          scraped_date:      today,
+          keyword_searched:  keyword || '',
+          location_searched: location || '',
+        };
+
+        const info = insert.run(
+          contact.profile_url, contact.full_name, contact.first_name, contact.last_name,
+          contact.headline, contact.current_company, contact.current_title, contact.location,
+          contact.email, contact.phone, contact.linkedin_url, contact.profile_picture,
+          contact.connections, contact.summary, contact.scraped_date,
+          contact.keyword_searched, contact.location_searched,
+        );
+        if (info.changes > 0) { added++; mapped.push(contact); } else skipped++;
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+
+    res.json({ added, skipped, total_found: collected.length, contacts: mapped });
+  } catch (err) {
+    const status = err.response?.status;
+    const data   = err.response?.data;
+    let detail = err.message;
+    if (typeof data === 'string') detail = data;
+    else if (data && typeof data === 'object') {
+      detail = data.description || data.detail
+            || (typeof data.error === 'string' ? data.error : data.error?.message)
+            || data.message
+            || JSON.stringify(data);
+    }
+    console.error('LinkedIn (NinjaPear) error:', status, detail);
+    if (status === 401 || status === 403) {
+      return res.status(400).json({ error: 'NinjaPear rejected the API key (invalid or out of credits).' });
+    }
+    if (status === 400 || status === 404) {
+      return res.status(400).json({ error: `NinjaPear: ${detail}` });
+    }
+    res.status(500).json({ error: 'LinkedIn search failed: ' + detail });
+  }
+});
+
+// PATCH /api/linkedin/:id — update crm_status
+app.patch('/api/linkedin/:id', requireAuth, (req, res) => {
+  const { crm_status } = req.body;
+  if (!LINKEDIN_STATUSES.has(crm_status)) return res.status(400).json({ error: 'Invalid status.' });
+  try {
+    const info = db.prepare('UPDATE linkedin_contacts SET crm_status = ? WHERE id = ?').run(crm_status, req.params.id);
+    res.json({ updated: info.changes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/linkedin/:id
+app.delete('/api/linkedin/:id', requireAuth, (req, res) => {
+  try {
+    const info = db.prepare('DELETE FROM linkedin_contacts WHERE id = ?').run(req.params.id);
+    res.json({ deleted: info.changes });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/linkedin/export
+app.get('/api/linkedin/export', requireAuth, async (_req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM linkedin_contacts ORDER BY created_at DESC').all();
+    const wb   = new ExcelJS.Workbook();
+    const ws   = wb.addWorksheet('LinkedIn Contacts');
+    ws.columns = [
+      { header: '#',            key: 'num',         width: 4  },
+      { header: 'Full Name',    key: 'full_name',   width: 28 },
+      { header: 'Headline',     key: 'headline',    width: 40 },
+      { header: 'Company',      key: 'company',     width: 28 },
+      { header: 'Title',        key: 'title',       width: 28 },
+      { header: 'Location',     key: 'location',    width: 26 },
+      { header: 'Email',        key: 'email',       width: 30 },
+      { header: 'Phone',        key: 'phone',       width: 18 },
+      { header: 'LinkedIn URL', key: 'linkedin',    width: 40 },
+      { header: 'Connections',  key: 'connections', width: 12 },
+      { header: 'Date Scraped', key: 'date',        width: 14 },
+    ];
+    ws.getRow(1).eachCell(cell => {
+      cell.font      = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0077B5' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    rows.forEach((c, i) => ws.addRow({
+      num: i + 1, full_name: c.full_name || '', headline: c.headline || '',
+      company: c.current_company || '', title: c.current_title || '',
+      location: c.location || '', email: c.email || '', phone: c.phone || '',
+      linkedin: c.linkedin_url || '', connections: c.connections ?? '', date: c.scraped_date || '',
+    }));
+
+    const buf     = await wb.xlsx.writeBuffer();
+    const dateStr = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="linkedin_contacts_${dateStr}.xlsx"`);
+    res.send(buf);
+  } catch (err) {
+    console.error('LinkedIn export error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 const PORT = process.env.PORT || 3001;

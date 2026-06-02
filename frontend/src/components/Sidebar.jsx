@@ -2,6 +2,7 @@ import {
   LayoutGrid, ShoppingBasket, Table2, UtensilsCrossed,
   Layers, CalendarDays, Search, Phone, LogOut,
 } from 'lucide-react';
+import LinkedInIcon from './LinkedInIcon';
 
 // ── Nav configuration ────────────────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ function SubItem({ label, active, onClick }) {
 
 // ── Top-level nav item ────────────────────────────────────────────────────────
 
-function NavItem({ icon: Icon, label, active, badge, onClick, disabled }) {
+function NavItem({ icon: Icon, label, active, badge, onClick, disabled, iconColor, badgeColor }) {
   return (
     <button
       onClick={disabled ? undefined : onClick}
@@ -52,14 +53,18 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled }) {
       {Icon && (
         <Icon
           size={18}
+          style={iconColor ? { color: iconColor } : undefined}
           className={`flex-shrink-0 transition-colors ${
-            active ? 'text-ink' : disabled ? 'text-ink-ghost' : 'text-ink-muted'
+            iconColor ? '' : active ? 'text-ink' : disabled ? 'text-ink-ghost' : 'text-ink-muted'
           }`}
         />
       )}
       <span className="flex-1 text-left leading-none">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="px-2 py-0.5 bg-brand text-white text-[11px] font-bold rounded-full min-w-[22px] text-center leading-none py-1">
+        <span
+          className="px-2 py-0.5 text-white text-[11px] font-bold rounded-full min-w-[22px] text-center leading-none py-1"
+          style={{ backgroundColor: badgeColor || '#22c55e' }}
+        >
           {badge}
         </span>
       )}
@@ -69,7 +74,7 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled }) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount, userEmail, onLogout }) {
+export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount, linkedinCount, userEmail, onLogout }) {
   const ordersOpen = ['scraper', 'contacts', 'history'].includes(activeTab);
 
   return (
@@ -129,6 +134,17 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
           active={activeTab === 'crm'}
           badge={crmCount}
           onClick={() => setActiveTab('crm')}
+        />
+
+        {/* LinkedIn */}
+        <NavItem
+          icon={LinkedInIcon}
+          label="LinkedIn"
+          active={activeTab === 'linkedin'}
+          badge={linkedinCount}
+          badgeColor="#0077b5"
+          iconColor="#0077b5"
+          onClick={() => setActiveTab('linkedin')}
         />
 
         {/* Decorative nav items */}

@@ -8,6 +8,7 @@ import ScraperTab    from './components/ScraperTab';
 import ContactsTab   from './components/ContactsTab';
 import HistoryTab    from './components/HistoryTab';
 import CRMTab        from './components/CRMTab';
+import LinkedInTab   from './components/LinkedInTab';
 import { useToast, ToastContainer } from './components/Toast';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -27,6 +28,7 @@ const PAGE_META = {
   contacts: (s) => ({ title: 'All Contacts',    sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records`                         }),
   history:  (s) => ({ title: 'Analytics',       sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history`                                      }),
   crm:      (s) => ({ title: 'CRM Tracker',     sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups`                      }),
+  linkedin: (s) => ({ title: 'LinkedIn Scraper', sub: `${s.linkedinTotal} profile${s.linkedinTotal !== 1 ? 's' : ''} · employee search via NinjaPear`      }),
 };
 
 // ── Loading spinner ───────────────────────────────────────────────────────────
@@ -48,6 +50,7 @@ function AppContent() {
   const [contacts,    setContacts]    = useState([]);
   const [runs,        setRuns]        = useState([]);
   const [crmContacts, setCrmContacts] = useState([]);
+  const [linkedinContacts, setLinkedinContacts] = useState([]);
   const { toasts, showToast } = useToast();
 
   const fetchContacts = useCallback(async () => {
@@ -65,17 +68,23 @@ function AppContent() {
     catch (e) { console.error('crm:', e); }
   }, []);
 
+  const fetchLinkedin = useCallback(async () => {
+    try { setLinkedinContacts(await (await fetch(`${API}/api/linkedin/contacts`, { headers: getAuthHeader() })).json()); }
+    catch (e) { console.error('linkedin:', e); }
+  }, []);
+
   useEffect(() => {
     if (user) {
       fetchContacts();
       fetchRuns();
       fetchCrm();
+      fetchLinkedin();
     }
-  }, [user, fetchContacts, fetchRuns, fetchCrm]);
+  }, [user, fetchContacts, fetchRuns, fetchCrm, fetchLinkedin]);
 
   const refreshData = useCallback(
-    () => Promise.all([fetchContacts(), fetchRuns(), fetchCrm()]),
-    [fetchContacts, fetchRuns, fetchCrm],
+    () => Promise.all([fetchContacts(), fetchRuns(), fetchCrm(), fetchLinkedin()]),
+    [fetchContacts, fetchRuns, fetchCrm, fetchLinkedin],
   );
 
   if (isLoading) return <LoadingSpinner />;
@@ -90,8 +99,9 @@ function AppContent() {
     runs:        runs.length,
     critical:    contacts.filter(c => getPriority(c) === 'critical').length,
     high:        contacts.filter(c => getPriority(c) === 'high').length,
-    normal:      contacts.filter(c => getPriority(c) === 'normal').length,
-    crmTotal:    crmContacts.length,
+    normal:        contacts.filter(c => getPriority(c) === 'normal').length,
+    crmTotal:      crmContacts.length,
+    linkedinTotal: linkedinContacts.length,
   };
 
   const page = (PAGE_META[activeTab] ?? PAGE_META.scraper)(stats);
@@ -105,6 +115,7 @@ function AppContent() {
         setActiveTab={setActiveTab}
         totalContacts={stats.total}
         crmCount={stats.crmTotal}
+        linkedinCount={stats.linkedinTotal}
         userEmail={user.email}
         onLogout={logout}
       />
@@ -162,6 +173,13 @@ function AppContent() {
             {activeTab === 'crm'      && (
               <CRMTab
                 crmContacts={crmContacts}
+                onRefresh={refreshData}
+                showToast={showToast}
+              />
+            )}
+            {activeTab === 'linkedin' && (
+              <LinkedInTab
+                linkedinContacts={linkedinContacts}
                 onRefresh={refreshData}
                 showToast={showToast}
               />

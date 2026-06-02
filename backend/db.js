@@ -77,4 +77,29 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS linkedin_contacts (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_url       TEXT UNIQUE,
+    full_name         TEXT,
+    first_name        TEXT,
+    last_name         TEXT,
+    headline          TEXT,
+    current_company   TEXT,
+    current_title     TEXT,
+    location          TEXT,
+    email             TEXT,
+    phone             TEXT,
+    linkedin_url      TEXT,
+    profile_picture   TEXT,
+    connections       INTEGER,
+    summary           TEXT,
+    scraped_date      TEXT,
+    keyword_searched  TEXT,
+    location_searched TEXT,
+    crm_status        TEXT DEFAULT 'Not Contacted',
+    created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 module.exports = db;
