@@ -17,3 +17,7 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test / verification artifacts
+*.png
+verify_*.js
