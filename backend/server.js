@@ -5,7 +5,7 @@ const axios    = require('axios');
 const ExcelJS  = require('exceljs');
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
-const db       = require('./db');
+const { pool } = require('./db');
 
 const app = express();
 app.use(cors({
@@ -48,10 +48,16 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
   try {
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase());
-    if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
+    const { rows: existing } = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    if (existing.length > 0) return res.status(409).json({ error: 'An account with this email already exists.' });
     const hash = await bcrypt.hash(password, 10);
-    db.prepare('INSERT INTO users (email, password_hash) VALUES (?, ?)').run(email.toLowerCase(), hash);
+    await pool.query(
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2)',
+      [email.toLowerCase(), hash]
+    );
     res.json({ success: true, message: 'Account created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,11 +68,15 @@ app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   try {
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase());
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    const user = rows[0];
     if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ error: 'Invalid email or password.' });
-    db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
+    await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, email: user.email, message: 'Login successful' });
   } catch (err) {
@@ -182,32 +192,37 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
     }
 
     // ── 3. Deduplicate and save ───────────────────────────────────────────────
-    const stmt = db.prepare(`
-      INSERT OR IGNORE INTO contacts
-        (place_id, name, phone, website, address, rating, types, lat, lng,
-         keyword_searched, location_searched, scraped_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
     let new_added = 0, skipped = 0;
-    db.exec('BEGIN');
+    const client = await pool.connect();
     try {
+      await client.query('BEGIN');
       for (const c of enriched) {
-        const info = stmt.run(
+        const result = await client.query(`
+          INSERT INTO contacts
+            (place_id, name, phone, website, address, rating, types, lat, lng,
+             keyword_searched, location_searched, scraped_date)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          ON CONFLICT (place_id) DO NOTHING
+        `, [
           c.place_id, c.name, c.phone, c.website, c.address,
           c.rating, c.types, c.lat, c.lng,
           c.keyword_searched, c.location_searched, c.scraped_date,
-        );
-        if (info.changes > 0) new_added++; else skipped++;
+        ]);
+        if (result.rowCount > 0) new_added++; else skipped++;
       }
-      db.exec('COMMIT');
+      await client.query('COMMIT');
     } catch (err) {
-      db.exec('ROLLBACK');
+      await client.query('ROLLBACK');
       throw err;
+    } finally {
+      client.release();
     }
 
     // ── 4. Log run ────────────────────────────────────────────────────────────
-    db.prepare('INSERT INTO runs (keyword, location, date, added, skipped, total) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(keyword, location, today, new_added, skipped, enriched.length);
+    await pool.query(
+      'INSERT INTO runs (keyword, location, date, added, skipped, total) VALUES ($1, $2, $3, $4, $5, $6)',
+      [keyword, location, today, new_added, skipped, enriched.length]
+    );
 
     sendProgress(`Done! Added ${new_added} new contact${new_added !== 1 ? 's' : ''} from ${allPlaces.length} found.`);
     send({ type: 'result', total_found: allPlaces.length, new_added, skipped, pages_fetched: pageCount });
@@ -221,64 +236,70 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/contacts ───────────────────────────────────────────────────────
-app.get('/api/contacts', requireAuth, (_req, res) => {
+app.get('/api/contacts', requireAuth, async (_req, res) => {
   try {
-    res.json(db.prepare('SELECT * FROM contacts ORDER BY created_at DESC').all());
+    const { rows } = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── POST /api/contacts ──────────────────────────────────────────────────────
-app.post('/api/contacts', requireAuth, (req, res) => {
+app.post('/api/contacts', requireAuth, async (req, res) => {
   const { contacts } = req.body;
   if (!Array.isArray(contacts) || contacts.length === 0) return res.json({ added: 0, skipped: 0 });
 
-  const stmt = db.prepare(`
-    INSERT OR IGNORE INTO contacts
-      (place_id, name, phone, website, address, rating, types, lat, lng,
-       keyword_searched, location_searched, scraped_date)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
   let added = 0, skipped = 0;
-  db.exec('BEGIN');
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     for (const c of contacts) {
-      const info = stmt.run(
+      const result = await client.query(`
+        INSERT INTO contacts
+          (place_id, name, phone, website, address, rating, types, lat, lng,
+           keyword_searched, location_searched, scraped_date)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (place_id) DO NOTHING
+      `, [
         c.place_id, c.name, c.phone, c.website, c.address,
         c.rating, c.types, c.lat, c.lng,
         c.keyword_searched, c.location_searched, c.scraped_date,
-      );
-      if (info.changes > 0) added++; else skipped++;
+      ]);
+      if (result.rowCount > 0) added++; else skipped++;
     }
-    db.exec('COMMIT');
+    await client.query('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
+    await client.query('ROLLBACK');
+    client.release();
     return res.status(500).json({ error: err.message });
   }
+  client.release();
   res.json({ added, skipped });
 });
 
 // ─── GET /api/runs ───────────────────────────────────────────────────────────
-app.get('/api/runs', requireAuth, (_req, res) => {
+app.get('/api/runs', requireAuth, async (_req, res) => {
   try {
-    res.json(db.prepare('SELECT * FROM runs ORDER BY created_at DESC').all());
+    const { rows } = await pool.query('SELECT * FROM runs ORDER BY created_at DESC');
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── POST /api/runs ──────────────────────────────────────────────────────────
-app.post('/api/runs', requireAuth, (req, res) => {
+app.post('/api/runs', requireAuth, async (req, res) => {
   const { keyword, location, date, added, skipped, total } = req.body;
   try {
-    const info = db.prepare(
-      'INSERT INTO runs (keyword, location, date, added, skipped, total) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(keyword, location, date, added ?? 0, skipped ?? 0, total ?? 0);
-    res.json({ id: info.lastInsertRowid });
+    const result = await pool.query(
+      'INSERT INTO runs (keyword, location, date, added, skipped, total) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [keyword, location, date, added ?? 0, skipped ?? 0, total ?? 0]
+    );
+    res.json({ id: result.rows[0].id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── GET /api/export ─────────────────────────────────────────────────────────
 app.get('/api/export', requireAuth, async (_req, res) => {
   try {
-    const contacts = db.prepare('SELECT * FROM contacts ORDER BY created_at DESC').all();
+    const { rows: contacts } = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
     const wb  = new ExcelJS.Workbook();
     const ws1 = wb.addWorksheet('Business Contacts');
     ws1.columns = [
@@ -342,10 +363,10 @@ app.get('/api/export', requireAuth, async (_req, res) => {
 });
 
 // ─── DELETE /api/clear ───────────────────────────────────────────────────────
-app.delete('/api/clear', requireAuth, (_req, res) => {
+app.delete('/api/clear', requireAuth, async (_req, res) => {
   try {
-    db.exec('DELETE FROM contacts');
-    db.exec('DELETE FROM runs');
+    await pool.query('DELETE FROM contacts');
+    await pool.query('DELETE FROM runs');
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -357,61 +378,77 @@ const ALLOWED_CRM_FIELDS = new Set([
   'notes', 'next_action', 'priority',
 ]);
 
-app.get('/api/crm/stats', requireAuth, (_req, res) => {
+app.get('/api/crm/stats', requireAuth, async (_req, res) => {
   try {
-    const rows  = db.prepare('SELECT status, COUNT(*) as count FROM crm_contacts GROUP BY status').all();
-    const total = db.prepare('SELECT COUNT(*) as count FROM crm_contacts').get()?.count ?? 0;
+    const { rows }  = await pool.query('SELECT status, COUNT(*) as count FROM crm_contacts GROUP BY status');
+    const { rows: totalRows } = await pool.query('SELECT COUNT(*) as count FROM crm_contacts');
+    const total = parseInt(totalRows[0]?.count ?? 0, 10);
     const keyMap = { 'Not Called': 'notCalled', 'Called': 'called', 'Follow Up': 'followUp', 'Converted': 'converted', 'Interested': 'interested', 'Not Interested': 'notInterested' };
     const counts = { total, notCalled: 0, called: 0, followUp: 0, converted: 0, interested: 0, notInterested: 0 };
-    for (const r of rows) { const k = keyMap[r.status]; if (k) counts[k] = r.count; }
+    for (const r of rows) { const k = keyMap[r.status]; if (k) counts[k] = parseInt(r.count, 10); }
     res.json(counts);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/crm', requireAuth, (_req, res) => {
+app.get('/api/crm', requireAuth, async (_req, res) => {
   try {
-    res.json(db.prepare('SELECT * FROM crm_contacts ORDER BY moved_at DESC').all());
+    const { rows } = await pool.query('SELECT * FROM crm_contacts ORDER BY moved_at DESC');
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.post('/api/crm/add', requireAuth, (req, res) => {
+app.post('/api/crm/add', requireAuth, async (req, res) => {
   const { place_ids } = req.body;
   if (!Array.isArray(place_ids) || place_ids.length === 0) return res.json({ added: 0, skipped: 0 });
   let added = 0, skipped = 0;
-  const select = db.prepare('SELECT * FROM contacts WHERE place_id = ?');
-  const insert = db.prepare(`INSERT OR IGNORE INTO crm_contacts (contact_id, place_id, name, phone, website, address, rating, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
-  db.exec('BEGIN');
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     for (const pid of place_ids) {
-      const c = select.get(pid);
+      const { rows } = await client.query('SELECT * FROM contacts WHERE place_id = $1', [pid]);
+      const c = rows[0];
       if (!c) { skipped++; continue; }
-      const info = insert.run(c.id, c.place_id, c.name, c.phone, c.website, c.address, c.rating != null ? String(c.rating) : null, c.types ? c.types.split(',')[0].replace(/_/g, ' ') : null);
-      if (info.changes > 0) added++; else skipped++;
+      const result = await client.query(`
+        INSERT INTO crm_contacts (contact_id, place_id, name, phone, website, address, rating, category)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (place_id) DO NOTHING
+      `, [
+        c.id, c.place_id, c.name, c.phone, c.website, c.address,
+        c.rating != null ? String(c.rating) : null,
+        c.types ? c.types.split(',')[0].replace(/_/g, ' ') : null,
+      ]);
+      if (result.rowCount > 0) added++; else skipped++;
     }
-    db.exec('COMMIT');
+    await client.query('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
+    await client.query('ROLLBACK');
+    client.release();
     return res.status(500).json({ error: err.message });
   }
+  client.release();
   res.json({ added, skipped });
 });
 
-app.patch('/api/crm/:place_id', requireAuth, (req, res) => {
+app.patch('/api/crm/:place_id', requireAuth, async (req, res) => {
   const { place_id } = req.params;
   const fields = Object.keys(req.body).filter(k => ALLOWED_CRM_FIELDS.has(k));
   if (fields.length === 0) return res.json({ updated: 0 });
-  const setClauses = [...fields.map(f => `${f} = ?`), "updated_at = datetime('now')"].join(', ');
+  const setClauses = [...fields.map((f, i) => `${f} = $${i + 1}`), 'updated_at = NOW()'].join(', ');
+  const values = [...fields.map(f => req.body[f]), place_id];
   try {
-    const info = db.prepare(`UPDATE crm_contacts SET ${setClauses} WHERE place_id = ?`).run(...fields.map(f => req.body[f]), place_id);
-    res.json({ updated: info.changes });
+    const result = await pool.query(
+      `UPDATE crm_contacts SET ${setClauses} WHERE place_id = $${fields.length + 1}`,
+      values
+    );
+    res.json({ updated: result.rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.delete('/api/crm/:place_id', requireAuth, (req, res) => {
+app.delete('/api/crm/:place_id', requireAuth, async (req, res) => {
   const { place_id } = req.params;
   try {
-    const info = db.prepare('DELETE FROM crm_contacts WHERE place_id = ?').run(place_id);
-    res.json({ deleted: info.changes });
+    const result = await pool.query('DELETE FROM crm_contacts WHERE place_id = $1', [place_id]);
+    res.json({ deleted: result.rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -460,9 +497,10 @@ function companyNameFromDomain(domain = '') {
 const LINKEDIN_STATUSES = new Set(['Not Contacted', 'Contacted', 'Connected', 'Not Interested']);
 
 // GET /api/linkedin/contacts
-app.get('/api/linkedin/contacts', requireAuth, (_req, res) => {
+app.get('/api/linkedin/contacts', requireAuth, async (_req, res) => {
   try {
-    res.json(db.prepare('SELECT * FROM linkedin_contacts ORDER BY created_at DESC').all());
+    const { rows } = await pool.query('SELECT * FROM linkedin_contacts ORDER BY created_at DESC');
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -483,11 +521,12 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   const domain = normaliseDomain(company_website || '');
   if (!domain) return res.status(400).json({ error: 'A company name or domain is required (e.g. dangote.com).' });
 
+  // NinjaPear requires a role; default to a broad term so "all staff" still works.
+  const role  = (keyword && keyword.trim()) || 'employee';
   const today = new Date().toISOString().split('T')[0];
 
   try {
-    const params = { company_website: domain };
-    if (keyword) params.role = keyword;
+    const params = { company_website: domain, role }; // role always sent
     const countryCode = toCountryCode(location || '');
     if (countryCode) params.country = countryCode; // NinjaPear needs an ISO alpha-2 code
 
@@ -502,23 +541,16 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     const collected = employees.slice(0, limit);
     const company   = companyNameFromDomain(domain);
 
-    const insert = db.prepare(`
-      INSERT OR IGNORE INTO linkedin_contacts
-        (profile_url, full_name, first_name, last_name, headline, current_company,
-         current_title, location, email, phone, linkedin_url, profile_picture,
-         connections, summary, scraped_date, keyword_searched, location_searched)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
     let added = 0, skipped = 0;
     const mapped = [];
+    const client = await pool.connect();
 
-    db.exec('BEGIN');
     try {
+      await client.query('BEGIN');
       for (const e of collected) {
-        const first = e.first_name || null;
-        const last  = e.last_name  || null;
-        const role  = e.role || e.title || keyword || null;
+        const first   = e.first_name || null;
+        const last    = e.last_name  || null;
+        const empRole = e.role || e.title || keyword || null;
         // NinjaPear returns an enrichment URL per employee; use it as the dedup key.
         const profileUrl = e.person_profile || e.profile_url
           || [first, last, domain].filter(Boolean).join('-').toLowerCase().replace(/\s+/g, '-');
@@ -529,9 +561,9 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
           full_name:         [first, last].filter(Boolean).join(' ') || null,
           first_name:        first,
           last_name:         last,
-          headline:          role,
+          headline:          empRole,
           current_company:   e.company_name || company,
-          current_title:     role,
+          current_title:     empRole,
           location:          location || null,
           // NinjaPear returns an enrichment *URL* in work_email, not an address.
           email:             (e.work_email && e.work_email.includes('@') && !/^https?:/i.test(e.work_email)) ? e.work_email : null,
@@ -545,20 +577,29 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
           location_searched: location || '',
         };
 
-        const info = insert.run(
+        const result = await client.query(`
+          INSERT INTO linkedin_contacts
+            (profile_url, full_name, first_name, last_name, headline, current_company,
+             current_title, location, email, phone, linkedin_url, profile_picture,
+             connections, summary, scraped_date, keyword_searched, location_searched)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+          ON CONFLICT (profile_url) DO NOTHING
+        `, [
           contact.profile_url, contact.full_name, contact.first_name, contact.last_name,
           contact.headline, contact.current_company, contact.current_title, contact.location,
           contact.email, contact.phone, contact.linkedin_url, contact.profile_picture,
           contact.connections, contact.summary, contact.scraped_date,
           contact.keyword_searched, contact.location_searched,
-        );
-        if (info.changes > 0) { added++; mapped.push(contact); } else skipped++;
+        ]);
+        if (result.rowCount > 0) { added++; mapped.push(contact); } else skipped++;
       }
-      db.exec('COMMIT');
+      await client.query('COMMIT');
     } catch (err) {
-      db.exec('ROLLBACK');
+      await client.query('ROLLBACK');
+      client.release();
       throw err;
     }
+    client.release();
 
     res.json({ added, skipped, total_found: collected.length, contacts: mapped });
   } catch (err) {
@@ -584,27 +625,30 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/linkedin/:id — update crm_status
-app.patch('/api/linkedin/:id', requireAuth, (req, res) => {
+app.patch('/api/linkedin/:id', requireAuth, async (req, res) => {
   const { crm_status } = req.body;
   if (!LINKEDIN_STATUSES.has(crm_status)) return res.status(400).json({ error: 'Invalid status.' });
   try {
-    const info = db.prepare('UPDATE linkedin_contacts SET crm_status = ? WHERE id = ?').run(crm_status, req.params.id);
-    res.json({ updated: info.changes });
+    const result = await pool.query(
+      'UPDATE linkedin_contacts SET crm_status = $1 WHERE id = $2',
+      [crm_status, req.params.id]
+    );
+    res.json({ updated: result.rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // DELETE /api/linkedin/:id
-app.delete('/api/linkedin/:id', requireAuth, (req, res) => {
+app.delete('/api/linkedin/:id', requireAuth, async (req, res) => {
   try {
-    const info = db.prepare('DELETE FROM linkedin_contacts WHERE id = ?').run(req.params.id);
-    res.json({ deleted: info.changes });
+    const result = await pool.query('DELETE FROM linkedin_contacts WHERE id = $1', [req.params.id]);
+    res.json({ deleted: result.rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // GET /api/linkedin/export
 app.get('/api/linkedin/export', requireAuth, async (_req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM linkedin_contacts ORDER BY created_at DESC').all();
+    const { rows } = await pool.query('SELECT * FROM linkedin_contacts ORDER BY created_at DESC');
     const wb   = new ExcelJS.Workbook();
     const ws   = wb.addWorksheet('LinkedIn Contacts');
     ws.columns = [
