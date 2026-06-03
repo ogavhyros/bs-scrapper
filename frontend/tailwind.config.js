@@ -32,9 +32,9 @@ export default {
 
         // ── Text scale ────────────────────────────────────────────────────
         ink: {
-          DEFAULT: '#1a1a1a',
-          soft:    '#6b7280',
-          muted:   '#9ca3af',
+          DEFAULT: '#1a2e1a',
+          soft:    '#4a7a4a',
+          muted:   '#6b7280',
           ghost:   '#d1d5db',
         },
 

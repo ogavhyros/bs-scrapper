@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Eye, EyeOff, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -131,14 +131,25 @@ export default function AuthPage() {
       <div className="w-full max-w-[400px] bg-white rounded-2xl shadow-card-lg px-6 py-7 sm:px-8 sm:py-8 mx-4">
 
         {/* ── Logo ───────────────────────────────────────────────────────── */}
-        <div className="text-center mb-7">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-brand rounded-card mb-3">
-            <Search size={22} className="text-white" />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+          <div style={{ width: 64, height: 64, borderRadius: 18, background: '#42D674', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(66,214,116,0.35)' }}>
+            <svg width="38" height="38" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="10" r="5" fill="white"/>
+              <circle cx="12" cy="10" r="3" fill="#42D674"/>
+              <circle cx="12" cy="10" r="1.3" fill="white"/>
+              <path d="M12 15 L12 21" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+              <path d="M8 19 L12 21 L16 19" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </div>
-          <h1 className="text-[22px] font-extrabold text-brand tracking-tight leading-none">
-            Business Scout
-          </h1>
-          <p className="text-[13px] text-ink-muted mt-1">Smart business contact scraping</p>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1.1 }}>
+              <span style={{ color: '#1a2e1a' }}>Business </span>
+              <span style={{ color: '#42D674' }}>Scout</span>
+            </div>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 5, letterSpacing: '0.3px' }}>
+              Smart contact intelligence
+            </div>
+          </div>
         </div>
 
         {/* ── Tab toggle — only for login / signup ───────────────────────── */}

@@ -4,6 +4,15 @@
 
 /* Inter loaded via <link> in index.html */
 
+:root {
+  --brand:       #42D674;
+  --brand-light: #80EF80;
+  --brand-pale:  #E3F0A3;
+  --brand-muted: #BADBA2;
+  --brand-dark:  #2ab55d;
+  --ink:         #1a2e1a;
+}
+
 /* ── Base reset ──────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 

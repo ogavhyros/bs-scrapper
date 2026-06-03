@@ -204,13 +204,20 @@ function EmptyState({ filtered }) {
 // ── ContactsTab ───────────────────────────────────────────────────────────────
 
 export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToast }) {
-  const [search,   setSearch]   = useState('');
-  const [filter,   setFilter]   = useState('all');
-  const [clearing, setClearing] = useState(false);
-  const [selected, setSelected] = useState(new Set());
-  const [moving,   setMoving]   = useState(false);
+  const [search,      setSearch]      = useState('');
+  const [filter,      setFilter]      = useState('all');
+  const [clearing,    setClearing]    = useState(false);
+  const [selected,    setSelected]    = useState(new Set());
+  const [moving,      setMoving]      = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const selectAllRef = useRef(null);
+
+  const noDataCount = useMemo(
+    () => contacts.filter(c => !c.phone && !c.website).length,
+    [contacts]
+  );
 
   const filtered = useMemo(() => {
     let list = contacts;
@@ -252,6 +259,14 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
     });
   };
 
+  const handleSelectNoData = () => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      contacts.filter(c => !c.phone && !c.website).forEach(c => next.add(c.place_id));
+      return next;
+    });
+  };
+
   const handleMoveTocrm = async () => {
     const place_ids = [...selected];
     setMoving(true);
@@ -269,6 +284,47 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
       showToast('Failed to move contacts to CRM', 'error');
     } finally {
       setMoving(false);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    const place_ids = [...selected];
+    if (!window.confirm(`Delete ${place_ids.length} contact${place_ids.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res  = await fetch(`${API}/api/contacts/bulk`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ place_ids }),
+      });
+      const data = await res.json();
+      showToast(`${data.deleted} contact${data.deleted !== 1 ? 's' : ''} deleted`, 'success');
+      setSelected(new Set());
+      await onRefresh();
+    } catch {
+      showToast('Failed to delete contacts', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDeleteNoData = async () => {
+    if (noDataCount === 0) return;
+    if (!window.confirm(`Delete all ${noDataCount} contacts with no phone or website? This cannot be undone.`)) return;
+    setDeletingAll(true);
+    try {
+      const res  = await fetch(`${API}/api/contacts/no-data`, {
+        method: 'DELETE',
+        headers: getAuthHeader(),
+      });
+      const data = await res.json();
+      showToast(`${data.deleted} no-data contact${data.deleted !== 1 ? 's' : ''} deleted`, 'success');
+      setSelected(new Set());
+      await onRefresh();
+    } catch {
+      showToast('Failed to delete no-data contacts', 'error');
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -330,7 +386,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
           </div>
 
           {/* Priority filters */}
-          <div className="flex gap-1.5 flex-shrink-0">
+          <div className="flex gap-1.5 flex-shrink-0 flex-wrap">
             {FILTER_OPTS.map(f => {
               const cfg      = PRIORITY_CONFIG[f.id];
               const isActive = filter === f.id;
@@ -340,7 +396,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
                   onClick={() => setFilter(f.id)}
                   className="px-3 py-1.5 rounded-full text-xs font-semibold transition-colors"
                   style={isActive
-                    ? { backgroundColor: cfg?.bg ?? '#1a1a1a', color: cfg?.text ?? '#ffffff', border: `1px solid ${cfg?.border ?? 'transparent'}` }
+                    ? { backgroundColor: cfg?.bg ?? '#1a2e1a', color: cfg?.text ?? '#ffffff', border: `1px solid ${cfg?.border ?? 'transparent'}` }
                     : { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #e5e7eb' }
                   }
                 >
@@ -351,7 +407,31 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2 flex-shrink-0 flex-wrap">
+            {/* Select No Data quick button */}
+            {noDataCount > 0 && (
+              <button
+                onClick={handleSelectNoData}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold transition-colors flex-shrink-0"
+                style={{ backgroundColor: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca' }}
+                title="Select all contacts with no phone or website"
+              >
+                Select No Data ({noDataCount})
+              </button>
+            )}
+            {/* Delete No Data button */}
+            {noDataCount > 0 && (
+              <button
+                onClick={handleDeleteNoData}
+                disabled={deletingAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-nav text-xs font-semibold border transition-colors flex-shrink-0"
+                style={{ color: '#dc2626', borderColor: '#fecaca', backgroundColor: 'transparent' }}
+                title="Delete all contacts with no phone or website"
+              >
+                <Trash2 size={12} />
+                {deletingAll ? 'Deleting…' : 'Delete No Data'}
+              </button>
+            )}
             <button
               onClick={handleExport}
               disabled={contacts.length === 0}
@@ -380,7 +460,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
             : `${filtered.length} of ${contacts.length} contact${contacts.length !== 1 ? 's' : ''}`
           }
           {selected.size > 0 && (
-            <span className="ml-2 text-brand font-semibold">· {selected.size} selected</span>
+            <span className="ml-2 font-semibold" style={{ color: '#dc2626' }}>· {selected.size} selected</span>
           )}
         </p>
       </div>
@@ -388,13 +468,13 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
       {/* ── Action bar (shown when contacts are selected) ────────────────── */}
       {selected.size > 0 && (
         <div
-          className="rounded-card px-5 py-3 flex items-center justify-between border shadow-card"
-          style={{ backgroundColor: '#E3F0A3', borderColor: '#42D674' }}
+          className="rounded-card px-5 py-3 flex items-center justify-between border shadow-card flex-wrap gap-3"
+          style={{ backgroundColor: '#fff1f2', borderColor: '#fecdd3' }}
         >
-          <span className="text-sm font-semibold text-ink">
+          <span className="text-sm font-semibold" style={{ color: '#dc2626' }}>
             {selected.size} contact{selected.size !== 1 ? 's' : ''} selected
           </span>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={() => setSelected(new Set())}
               className="text-xs text-ink-muted hover:text-ink transition-colors"
@@ -407,6 +487,14 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
               className="btn-primary py-1.5 px-4 text-xs"
             >
               {moving ? 'Moving…' : 'Move to CRM →'}
+            </button>
+            <button
+              onClick={handleDeleteSelected}
+              disabled={deleting}
+              className="py-1.5 px-4 text-xs font-semibold rounded-nav transition-colors"
+              style={{ backgroundColor: '#dc2626', color: 'white' }}
+            >
+              {deleting ? 'Deleting…' : `Delete ${selected.size}`}
             </button>
           </div>
         </div>

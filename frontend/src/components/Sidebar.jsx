@@ -1,6 +1,6 @@
 import {
   LayoutGrid, ShoppingBasket, Table2, UtensilsCrossed,
-  Layers, CalendarDays, Search, Phone, LogOut,
+  Layers, CalendarDays, Phone, LogOut,
 } from 'lucide-react';
 import LinkedInIcon from './LinkedInIcon';
 
@@ -82,14 +82,19 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
                       flex-col flex-shrink-0 overflow-hidden">
 
       {/* Logo ──────────────────────────────────────────────────────────────── */}
-      <div className="px-5 py-5 border-b border-line flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-brand rounded-nav flex items-center justify-center flex-shrink-0">
-            <Search size={15} className="text-white" />
-          </div>
-          <span className="text-[20px] font-extrabold text-brand tracking-tight leading-none">
-            Business Scout
-          </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 20px 16px 20px', borderBottom: '1px solid #E3F0A3' }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: '#42D674', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(66,214,116,0.3)' }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="10" r="5" fill="white"/>
+            <circle cx="12" cy="10" r="3" fill="#42D674"/>
+            <circle cx="12" cy="10" r="1.3" fill="white"/>
+            <path d="M12 15 L12 21" stroke="white" strokeWidth="2.2" strokeLinecap="round"/>
+            <path d="M8 19 L12 21 L16 19" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.15, color: '#1a2e1a' }}>Business</div>
+          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.15, color: '#42D674' }}>Scout</div>
         </div>
       </div>
 

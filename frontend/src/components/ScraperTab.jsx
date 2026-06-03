@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Flame, AlertTriangle, CheckCircle2, BarChart3,
-  Search, Loader2, MapPin, Radius,
+  Search, Loader2, MapPin, Radius, Trash2,
 } from 'lucide-react';
 
 import { getAuthHeader } from '../context/AuthContext';
@@ -45,7 +45,7 @@ const PRIORITY_CARDS = [
   },
 ];
 
-function PriorityCard({ config, count }) {
+function PriorityCard({ config, count, onDelete, deleting }) {
   const { label, icon: Icon, bg, text, border } = config;
   return (
     <div
@@ -59,7 +59,20 @@ function PriorityCard({ config, count }) {
         >
           {label}
         </span>
-        <Icon size={16} style={{ color: text }} className="opacity-70" />
+        <div className="flex items-center gap-1.5">
+          <Icon size={16} style={{ color: text }} className="opacity-70" />
+          {onDelete && count > 0 && (
+            <button
+              onClick={onDelete}
+              disabled={deleting}
+              title="Delete all no-data contacts"
+              className="p-0.5 rounded transition-colors hover:bg-red-200"
+              style={{ color: '#dc2626' }}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="text-3xl font-bold tabular-nums" style={{ color: text }}>
         {count}
@@ -105,11 +118,23 @@ const RADII = [
 // ── ScraperTab ────────────────────────────────────────────────────────────────
 
 export default function ScraperTab({ stats, onRefresh }) {
-  const [keyword,  setKeyword]  = useState('');
-  const [location, setLocation] = useState('');
-  const [radius,   setRadius]   = useState(5000);
-  const [loading,  setLoading]  = useState(false);
-  const [status,   setStatus]   = useState(null);
+  const [keyword,         setKeyword]         = useState('');
+  const [location,        setLocation]        = useState('');
+  const [radius,          setRadius]          = useState(5000);
+  const [loading,         setLoading]         = useState(false);
+  const [status,          setStatus]          = useState(null);
+  const [deletingNoData,  setDeletingNoData]  = useState(false);
+
+  const handleDeleteNoData = async () => {
+    if (stats.critical === 0) return;
+    if (!window.confirm(`Delete all ${stats.critical} contacts with no phone or website? This cannot be undone.`)) return;
+    setDeletingNoData(true);
+    try {
+      await fetch(`${API}/api/contacts/no-data`, { method: 'DELETE', headers: getAuthHeader() });
+      await onRefresh();
+    } catch (e) { console.error('Delete no-data failed:', e); }
+    finally { setDeletingNoData(false); }
+  };
 
   const handleScrape = async () => {
     if (!keyword.trim() || !location.trim()) {
@@ -193,7 +218,13 @@ export default function ScraperTab({ stats, onRefresh }) {
       {/* ── Priority stat row: 2×2 on mobile, 4-in-a-row on desktop ──────── */}
       <div className="grid grid-cols-2 lg:flex gap-3 lg:gap-4">
         {PRIORITY_CARDS.map(cfg => (
-          <PriorityCard key={cfg.key} config={cfg} count={stats[cfg.key] ?? stats.total} />
+          <PriorityCard
+            key={cfg.key}
+            config={cfg}
+            count={stats[cfg.key] ?? stats.total}
+            onDelete={cfg.key === 'critical' ? handleDeleteNoData : null}
+            deleting={cfg.key === 'critical' ? deletingNoData : false}
+          />
         ))}
       </div>
 

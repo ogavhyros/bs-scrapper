@@ -337,6 +337,49 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
   }
 });
 
+// ─── DELETE /api/contacts/no-data ────────────────────────────────────────────
+app.delete('/api/contacts/no-data', requireAuth, async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT place_id FROM contacts WHERE (phone IS NULL OR phone = '') AND (website IS NULL OR website = '')`
+    );
+    const ids = rows.map(r => r.place_id);
+    if (ids.length === 0) { await client.query('ROLLBACK'); return res.json({ deleted: 0 }); }
+    await client.query('DELETE FROM crm_contacts WHERE place_id = ANY($1)', [ids]);
+    const result = await client.query(
+      `DELETE FROM contacts WHERE (phone IS NULL OR phone = '') AND (website IS NULL OR website = '')`
+    );
+    await client.query('COMMIT');
+    res.json({ deleted: result.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ─── DELETE /api/contacts/bulk ────────────────────────────────────────────────
+app.delete('/api/contacts/bulk', requireAuth, async (req, res) => {
+  const { place_ids } = req.body;
+  if (!Array.isArray(place_ids) || place_ids.length === 0) return res.json({ deleted: 0 });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM crm_contacts WHERE place_id = ANY($1)', [place_ids]);
+    const result = await client.query('DELETE FROM contacts WHERE place_id = ANY($1)', [place_ids]);
+    await client.query('COMMIT');
+    res.json({ deleted: result.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── GET /api/contacts ───────────────────────────────────────────────────────
 app.get('/api/contacts', requireAuth, async (_req, res) => {
   try {
