@@ -19,7 +19,7 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       {ITEMS.map((item, i) => {
         const Icon        = item.icon;
         const isActive    = activeTab === item.id;
-        const activeColor = item.activeColor || '#22c55e';
+        const activeColor = item.activeColor || '#42D674';
         const color       = isActive ? activeColor : '#9ca3af';
         return (
           <button

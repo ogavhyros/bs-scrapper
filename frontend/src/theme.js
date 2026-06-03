@@ -1,9 +1,14 @@
-// ── Abom Style Design Tokens ──────────────────────────────────────────────────
+// ── Pistachio Dream Design Tokens ─────────────────────────────────────────────
 // Single source of truth for all design decisions.
 // Import this file wherever you need raw token values outside of Tailwind.
 
 export const colors = {
-  brand:   '#22c55e',
+  brand:      '#42D674',
+  brandLight: '#80EF80',
+  brandPale:  '#E3F0A3',
+  brandMuted: '#BADBA2',
+  brandDark:  '#2ab55d',
+
   bg:      '#f8f9fa',
   sidebar: '#ffffff',
   card:    '#ffffff',
@@ -17,14 +22,14 @@ export const colors = {
   },
 
   nav: {
-    active: '#f3f4f6',
-    hover:  '#f9fafb',
+    active: '#E3F0A3',
+    hover:  '#f1f7d1',
   },
 
   priority: {
     critical: { bg: '#fee2e2', text: '#dc2626', border: '#fecaca' },
     high:     { bg: '#fef3c7', text: '#d97706', border: '#fde68a' },
-    normal:   { bg: '#f0fdf4', text: '#16a34a', border: '#bbf7d0' },
+    normal:   { bg: '#E3F0A3', text: '#2ab55d', border: '#BADBA2' },
     neutral:  { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb' },
   },
 
@@ -35,7 +40,7 @@ export const colors = {
   ],
 
   status: {
-    success: { bg: '#f0fdf4', text: '#16a34a', border: '#bbf7d0' },
+    success: { bg: '#E3F0A3', text: '#2ab55d', border: '#BADBA2' },
     error:   { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
     warning: { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
     info:    { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' },
@@ -52,6 +57,7 @@ export const shadow = {
   card:      '0 1px 3px rgba(0,0,0,0.08)',
   cardHover: '0 4px 12px rgba(0,0,0,0.10)',
   sidebar:   '1px 0 0 #e5e7eb',
+  brandGlow: '0 4px 14px rgba(66,214,116,0.35)',
 };
 
 export const spacing = {

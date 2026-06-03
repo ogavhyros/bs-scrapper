@@ -1,11 +1,13 @@
 require('dotenv').config();
-const express  = require('express');
-const cors     = require('cors');
-const axios    = require('axios');
-const ExcelJS  = require('exceljs');
-const bcrypt   = require('bcryptjs');
-const jwt      = require('jsonwebtoken');
-const { pool } = require('./db');
+const express      = require('express');
+const cors         = require('cors');
+const axios        = require('axios');
+const ExcelJS      = require('exceljs');
+const bcrypt       = require('bcryptjs');
+const jwt          = require('jsonwebtoken');
+const nodemailer   = require('nodemailer');
+const crypto       = require('crypto');
+const { pool }     = require('./db');
 
 const app = express();
 app.use(cors({
@@ -88,6 +90,106 @@ app.post('/api/auth/logout', (_req, res) => res.json({ success: true }));
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ id: req.user.id, email: req.user.email });
+});
+
+// ── Temporary debug endpoint ──────────────────────────────────────────────────
+app.get('/api/auth/debug', async (_req, res) => {
+  try {
+    const { rows: count }  = await pool.query('SELECT COUNT(*) as count FROM users');
+    const { rows: columns } = await pool.query(`
+      SELECT column_name, data_type
+      FROM information_schema.columns
+      WHERE table_name = 'users'
+      ORDER BY ordinal_position
+    `);
+    res.json({ user_count: count[0].count, columns });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/auth/forgot-password ───────────────────────────────────────────
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  try {
+    const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (rows.length > 0) {
+      const token   = crypto.randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 3600 * 1000); // 1 hour
+      await pool.query(
+        'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE email = $3',
+        [token, expires, email.toLowerCase()]
+      );
+      const resetUrl = `${process.env.FRONTEND_URL || 'https://bs-scrapper-ivory.vercel.app'}?token=${token}`;
+      const html = `<!DOCTYPE html>
+<html>
+<body style="font-family:-apple-system,Helvetica,sans-serif;background:#f8f9fa;padding:40px 20px;">
+  <div style="max-width:480px;margin:0 auto;background:white;border-radius:16px;padding:40px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+    <div style="text-align:center;margin-bottom:32px;">
+      <span style="font-size:28px;font-weight:700;color:#1a2e1a;">Business </span>
+      <span style="font-size:28px;font-weight:700;color:#42D674;">Scout</span>
+    </div>
+    <h2 style="color:#1a2e1a;margin-bottom:12px;">Reset your password</h2>
+    <p style="color:#6b7280;line-height:1.6;">
+      You requested a password reset for your Business Scout account.
+      Click the button below to create a new password.
+    </p>
+    <div style="text-align:center;margin:32px 0;">
+      <a href="${resetUrl}"
+         style="background:#42D674;color:white;padding:14px 32px;border-radius:10px;
+                text-decoration:none;font-weight:600;font-size:16px;display:inline-block;">
+        Reset Password
+      </a>
+    </div>
+    <p style="color:#9ca3af;font-size:13px;text-align:center;">
+      This link expires in 1 hour. If you didn't request this, you can safely ignore this email.
+    </p>
+  </div>
+</body>
+</html>`;
+
+      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+        });
+        await transporter.sendMail({
+          from: `"Business Scout" <${process.env.EMAIL_USER}>`,
+          to: email,
+          subject: 'Reset your Business Scout password',
+          html,
+        });
+      }
+    }
+    // Always return success — don't reveal whether email exists
+    res.json({ message: 'Reset email sent if account exists' });
+  } catch (err) {
+    console.error('Forgot password error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/auth/reset-password ────────────────────────────────────────────
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) return res.status(400).json({ error: 'Token and new password are required.' });
+  if (newPassword.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  try {
+    const { rows } = await pool.query(
+      'SELECT id FROM users WHERE reset_token = $1 AND reset_token_expires > NOW()',
+      [token]
+    );
+    if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired reset link.' });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      'UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL WHERE id = $2',
+      [hash, rows[0].id]
+    );
+    res.json({ message: 'Password reset successful' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── POST /api/scrape ────────────────────────────────────────────────────────

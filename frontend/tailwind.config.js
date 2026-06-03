@@ -14,12 +14,18 @@ export default {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
       },
       colors: {
-        // ── Brand ────────────────────────────────────────────────────────
-        brand:    '#22c55e',
+        // ── Brand (Pistachio Dream) ───────────────────────────────────────
+        brand: {
+          light:   '#80EF80',
+          pale:    '#E3F0A3',
+          muted:   '#BADBA2',
+          DEFAULT: '#42D674',
+          dark:    '#2ab55d',
+        },
 
         // ── Page structure ────────────────────────────────────────────────
-        surface:  '#f8f9fa',     // page background
-        panel:    '#ffffff',     // sidebar / card background
+        surface:  '#f8f9fa',
+        panel:    '#ffffff',
 
         // ── Borders ───────────────────────────────────────────────────────
         line:     '#e5e7eb',
@@ -34,8 +40,8 @@ export default {
 
         // ── Navigation ────────────────────────────────────────────────────
         nav: {
-          active: '#f3f4f6',
-          hover:  '#f9fafb',
+          active: '#E3F0A3',
+          hover:  '#f1f7d1',
         },
 
         // ── Priority system ───────────────────────────────────────────────
@@ -50,15 +56,16 @@ export default {
           border: '#fde68a',
         },
         normal: {
-          bg:     '#f0fdf4',
-          text:   '#16a34a',
-          border: '#bbf7d0',
+          bg:     '#E3F0A3',
+          text:   '#2ab55d',
+          border: '#BADBA2',
         },
       },
 
       boxShadow: {
-        card:      '0 1px 3px rgba(0,0,0,0.08)',
-        'card-lg': '0 4px 12px rgba(0,0,0,0.10)',
+        card:         '0 1px 3px rgba(0,0,0,0.08)',
+        'card-lg':    '0 4px 12px rgba(0,0,0,0.10)',
+        'brand-glow': '0 4px 14px rgba(66,214,116,0.35)',
       },
 
       borderRadius: {

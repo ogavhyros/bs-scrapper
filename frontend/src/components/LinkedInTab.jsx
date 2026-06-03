@@ -15,7 +15,7 @@ const STATUS_OPTIONS = ['Not Contacted', 'Contacted', 'Connected', 'Not Interest
 const STATUS_COLORS = {
   'Not Contacted':  { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
   'Contacted':      { bg: '#eff6ff', text: '#3b82f6', border: '#bfdbfe' },
-  'Connected':      { bg: '#f0fdf4', text: '#22c55e', border: '#bbf7d0' },
+  'Connected':      { bg: '#E3F0A3', text: '#42D674', border: '#BADBA2' },
   'Not Interested': { bg: '#fef2f2', text: '#ef4444', border: '#fecaca' },
 };
 
@@ -30,7 +30,7 @@ function getInitials(name = '') {
 function StatusBanner({ status }) {
   if (!status) return null;
   const map = {
-    success: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+    success: { bg: '#E3F0A3', text: '#2ab55d', border: '#BADBA2' },
     error:   { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
     info:    { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
   };
@@ -194,7 +194,8 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
       const res  = await fetch(`${API}/api/linkedin/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
-        body: JSON.stringify({ company_website: company, keyword, location, limit }),
+        // Empty role → "employee" so NinjaPear returns all staff
+        body: JSON.stringify({ company_website: company, keyword: keyword.trim() || 'employee', location, limit }),
       });
       const data = await res.json();
       if (!res.ok) { setStatus({ type: 'error', message: data.error || 'Search failed.' }); return; }
@@ -252,7 +253,7 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
 
   const STAT_CARDS = [
     { label: 'Total Profiles', value: stats.total,     color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
-    { label: 'With Email',     value: stats.withEmail, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+    { label: 'With Email',     value: stats.withEmail, color: '#2ab55d', bg: '#E3F0A3', border: '#BADBA2' },
     { label: 'With Phone',     value: stats.withPhone, color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
     { label: 'Scrape Runs',    value: stats.runs,      color: '#374151', bg: '#f3f4f6', border: '#e5e7eb' },
   ];
@@ -297,10 +298,10 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block label-xs mb-1.5">Job Role <span className="text-ink-muted normal-case font-normal">(optional)</span></label>
+              <label className="block label-xs mb-1.5">Job Role <span className="text-ink-muted normal-case font-normal">(type 'employee' for all staff)</span></label>
               <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                placeholder="e.g. manager, engineer, director" className="input-base" />
+                placeholder="e.g. manager, director, employee" className="input-base" />
             </div>
             <div>
               <label className="block label-xs mb-1.5">Location <span className="text-ink-muted normal-case font-normal">(optional)</span></label>

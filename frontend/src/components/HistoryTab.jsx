@@ -118,7 +118,7 @@ export default function HistoryTab({ runs }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {[
           { label: 'Total Runs',    value: runs.length, color: '#374151', bg: '#f3f4f6', border: '#e5e7eb' },
-          { label: 'Total Added',   value: totalAdded,  color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+          { label: 'Total Added',   value: totalAdded,  color: '#2ab55d', bg: '#E3F0A3', border: '#BADBA2' },
           { label: 'Total Skipped', value: totalSkipped,color: '#d97706', bg: '#fef3c7', border: '#fde68a' },
           { label: 'Total Found',   value: totalFound,  color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
         ].map(({ label, value, color, bg, border }) => (

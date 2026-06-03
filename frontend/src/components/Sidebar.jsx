@@ -44,7 +44,7 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled, iconColo
       onClick={disabled ? undefined : onClick}
       className={`nav-item ${
         active
-          ? 'bg-nav-active text-ink font-semibold'
+          ? 'bg-nav-active text-brand-dark font-semibold shadow-[inset_3px_0_0_#42D674]'
           : disabled
           ? 'text-ink-ghost cursor-default'
           : 'text-ink-soft hover:bg-nav-hover hover:text-ink'
@@ -63,7 +63,7 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled, iconColo
       {badge != null && badge > 0 && (
         <span
           className="px-2 py-0.5 text-white text-[11px] font-bold rounded-full min-w-[22px] text-center leading-none py-1"
-          style={{ backgroundColor: badgeColor || '#22c55e' }}
+          style={{ backgroundColor: badgeColor || '#42D674' }}
         >
           {badge}
         </span>

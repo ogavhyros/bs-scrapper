@@ -14,9 +14,9 @@ export function useToast() {
 }
 
 const STYLES = {
-  success: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0', Icon: CheckCircle2 },
+  success: { bg: '#42D674', text: '#ffffff', border: '#2ab55d', Icon: CheckCircle2 },
   error:   { bg: '#fef2f2', text: '#dc2626', border: '#fecaca', Icon: XCircle      },
-  info:    { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe', Icon: Info         },
+  info:    { bg: '#80EF80', text: '#1a5e2a', border: '#42D674', Icon: Info         },
 };
 
 export function ToastContainer({ toasts }) {

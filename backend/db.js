@@ -92,6 +92,12 @@ async function initDB() {
       created_at        TIMESTAMP DEFAULT NOW()
     )
   `);
+
+  // ── Column migrations — safe to run every startup ─────────────────────────
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP`);
+
   console.log('PostgreSQL tables ready');
 }
 

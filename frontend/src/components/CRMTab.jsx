@@ -13,7 +13,7 @@ const ACTION_OPTIONS   = ['Send Proposal', 'Call Again', 'Remove', 'Converted'];
 
 const STATUS_COLORS = {
   'Not Called':     { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
-  'Called':         { bg: '#f0fdf4', text: '#22c55e', border: '#bbf7d0' },
+  'Called':         { bg: '#E3F0A3', text: '#42D674', border: '#BADBA2' },
   'Follow Up':      { bg: '#fffbeb', text: '#f59e0b', border: '#fde68a' },
   'Converted':      { bg: '#f5f3ff', text: '#8b5cf6', border: '#ddd6fe' },
   'Interested':     { bg: '#eff6ff', text: '#3b82f6', border: '#bfdbfe' },
@@ -36,7 +36,7 @@ const AVATAR_COLORS = [
 const STAT_CARDS = [
   { key: 'total',     label: 'Total',      color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
   { key: 'notCalled', label: 'Not Called', color: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb' },
-  { key: 'called',    label: 'Called',     color: '#22c55e', bg: '#f0fdf4', border: '#bbf7d0' },
+  { key: 'called',    label: 'Called',     color: '#42D674', bg: '#E3F0A3', border: '#BADBA2' },
   { key: 'followUp',  label: 'Follow Up',  color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
   { key: 'converted', label: 'Converted',  color: '#8b5cf6', bg: '#f5f3ff', border: '#ddd6fe' },
 ];

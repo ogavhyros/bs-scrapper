@@ -31,17 +31,17 @@ const PRIORITY_CARDS = [
     key:    'normal',
     label:  'Complete',
     icon:   CheckCircle2,
-    bg:     '#f0fdf4',
-    text:   '#16a34a',
-    border: '#bbf7d0',
+    bg:     '#E3F0A3',
+    text:   '#2ab55d',
+    border: '#BADBA2',
   },
   {
     key:    'total',
     label:  'Total',
     icon:   BarChart3,
-    bg:     '#f3f4f6',
-    text:   '#374151',
-    border: '#e5e7eb',
+    bg:     '#ffffff',
+    text:   '#1a1a1a',
+    border: '#BADBA2',
   },
 ];
 
@@ -76,7 +76,7 @@ function PriorityCard({ config, count }) {
 function StatusBanner({ status }) {
   if (!status) return null;
   const map = {
-    success: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
+    success: { bg: '#E3F0A3', text: '#2ab55d', border: '#BADBA2' },
     error:   { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
     warning: { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
     info:    { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },

@@ -54,7 +54,7 @@ function BusinessCard({ contact, index, selected, onToggle, inCrm }) {
   return (
     <div
       className={`card p-3 lg:p-5 border-l-[3px] hover:shadow-card-lg transition-all duration-150 cursor-default
-                  ${selected ? 'border-l-brand bg-green-50/30' : 'border-l-transparent hover:border-l-amber-400'}`}
+                  ${selected ? 'border-l-brand bg-brand-pale/30' : 'border-l-transparent hover:border-l-brand-muted'}`}
     >
       <div className="flex gap-2 lg:gap-4">
 
@@ -105,7 +105,7 @@ function BusinessCard({ contact, index, selected, onToggle, inCrm }) {
             {inCrm && (
               <span
                 className="px-2.5 py-0.5 rounded-full text-[11px] font-bold border"
-                style={{ backgroundColor: '#f0fdf4', color: '#22c55e', borderColor: '#bbf7d0' }}
+                style={{ backgroundColor: '#E3F0A3', color: '#2ab55d', borderColor: '#BADBA2' }}
               >
                 In CRM ✓
               </span>
@@ -389,7 +389,7 @@ export default function ContactsTab({ contacts, onRefresh, crmPlaceIds, showToas
       {selected.size > 0 && (
         <div
           className="rounded-card px-5 py-3 flex items-center justify-between border shadow-card"
-          style={{ backgroundColor: '#f0fdf4', borderColor: '#22c55e' }}
+          style={{ backgroundColor: '#E3F0A3', borderColor: '#42D674' }}
         >
           <span className="text-sm font-semibold text-ink">
             {selected.size} contact{selected.size !== 1 ? 's' : ''} selected
