@@ -50,6 +50,25 @@ html { scroll-behavior: smooth; }
   }
 }
 
+/* ── Landing page animations ─────────────────────────────────────────────── */
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes floatY {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ticker-track  { animation: ticker 32s linear infinite; display: flex; width: max-content; }
+.float-mock    { animation: floatY 5s ease-in-out infinite; }
+.fade-up-1     { animation: fadeUp 0.55s ease both; }
+.fade-up-2     { animation: fadeUp 0.55s ease 0.12s both; }
+.fade-up-3     { animation: fadeUp 0.55s ease 0.24s both; }
+
 /* ── Utility classes ─────────────────────────────────────────────────────── */
 @layer utilities {
   .card {
