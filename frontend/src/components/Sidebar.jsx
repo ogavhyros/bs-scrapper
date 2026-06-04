@@ -3,8 +3,9 @@ import {
   Layers, CalendarDays, Phone, LogOut,
 } from 'lucide-react';
 import LinkedInIcon from './LinkedInIcon';
+import { useTheme } from '../context/ThemeContext';
 
-// ── Nav configuration ────────────────────────────────────────────────────────
+// ── Nav configuration ─────────────────────────────────────────────────────────
 
 const FUNCTIONAL_SUB = [
   { id: 'contacts', label: 'All Contacts' },
@@ -19,7 +20,7 @@ const DECORATIVE_NAV = [
   { id: 'reservations', label: 'Schedule',     icon: CalendarDays    },
 ];
 
-// ── Sub-item ─────────────────────────────────────────────────────────────────
+// ── Sub-item ──────────────────────────────────────────────────────────────────
 
 function SubItem({ label, active, onClick }) {
   return (
@@ -76,13 +77,14 @@ function NavItem({ icon: Icon, label, active, badge, onClick, disabled, iconColo
 
 export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount, linkedinCount, userEmail, onLogout }) {
   const ordersOpen = ['scraper', 'contacts', 'history'].includes(activeTab);
+  const { isDark, toggleTheme } = useTheme();
 
   return (
     <aside className="hidden lg:flex w-sidebar min-w-sidebar h-screen bg-panel border-r border-line
                       flex-col flex-shrink-0 overflow-hidden">
 
       {/* Logo ──────────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 20px 16px 20px', borderBottom: '1px solid #E3F0A3' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 20px 16px 20px', borderBottom: '1px solid var(--border)' }}>
         <div style={{ width: 40, height: 40, borderRadius: 10, background: '#42D674', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(66,214,116,0.3)' }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="12" cy="10" r="5" fill="white"/>
@@ -93,7 +95,7 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
           </svg>
         </div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.15, color: '#1a2e1a' }}>Business</div>
+          <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.15, color: 'var(--text-primary)' }}>Business</div>
           <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.15, color: '#42D674' }}>Scout</div>
         </div>
       </div>
@@ -101,73 +103,53 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
       {/* Navigation ────────────────────────────────────────────────────────── */}
       <nav className="px-3 py-3 flex-1 overflow-y-auto space-y-0.5">
 
-        {/* Dashboard */}
-        <NavItem
-          icon={LayoutGrid}
-          label="Dashboard"
-          active={false}
-          onClick={() => setActiveTab('scraper')}
-        />
+        <NavItem icon={LayoutGrid} label="Dashboard" active={false} onClick={() => setActiveTab('scraper')} />
 
-        {/* Contacts section */}
         <div>
-          <NavItem
-            icon={ShoppingBasket}
-            label="Contacts"
-            active={ordersOpen}
-            badge={totalContacts}
-            onClick={() => {}} /* expand only — sub-items handle routing */
-          />
-
-          {/* Sub-nav items */}
+          <NavItem icon={ShoppingBasket} label="Contacts" active={ordersOpen} badge={totalContacts} onClick={() => {}} />
           <div className="mt-0.5 space-y-0.5">
             {FUNCTIONAL_SUB.map(sub => (
-              <SubItem
-                key={sub.id}
-                label={sub.label}
-                active={activeTab === sub.id}
-                onClick={() => setActiveTab(sub.id)}
-              />
+              <SubItem key={sub.id} label={sub.label} active={activeTab === sub.id} onClick={() => setActiveTab(sub.id)} />
             ))}
           </div>
         </div>
 
-        {/* CRM */}
-        <NavItem
-          icon={Phone}
-          label="CRM"
-          active={activeTab === 'crm'}
-          badge={crmCount}
-          onClick={() => setActiveTab('crm')}
-        />
+        <NavItem icon={Phone} label="CRM" active={activeTab === 'crm'} badge={crmCount} onClick={() => setActiveTab('crm')} />
 
-        {/* LinkedIn */}
         <NavItem
-          icon={LinkedInIcon}
-          label="LinkedIn"
-          active={activeTab === 'linkedin'}
-          badge={linkedinCount}
-          badgeColor="#0077b5"
-          iconColor="#0077b5"
+          icon={LinkedInIcon} label="LinkedIn"
+          active={activeTab === 'linkedin'} badge={linkedinCount}
+          badgeColor="#0077b5" iconColor="#0077b5"
           onClick={() => setActiveTab('linkedin')}
         />
 
-        {/* Decorative nav items */}
         <div className="pt-1">
           {DECORATIVE_NAV.map(item => (
-            <NavItem
-              key={item.id}
-              icon={item.icon}
-              label={item.label}
-              active={false}
-              disabled
-            />
+            <NavItem key={item.id} icon={item.icon} label={item.label} active={false} disabled />
           ))}
         </div>
       </nav>
 
       {/* Footer ────────────────────────────────────────────────────────────── */}
-      <div className="px-5 py-4 border-t border-line flex-shrink-0">
+      <div className="px-4 py-4 border-t border-line flex-shrink-0">
+        {/* Theme toggle */}
+        <button
+          onClick={toggleTheme}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+            padding: '9px 12px', background: 'none',
+            border: '1px solid var(--border)', borderRadius: 8,
+            cursor: 'pointer', color: 'var(--text-secondary)',
+            fontSize: 13, fontWeight: 500, marginBottom: 12,
+            transition: 'all 0.2s',
+          }}
+          onMouseOver={e => { e.currentTarget.style.borderColor = '#42D674'; e.currentTarget.style.color = '#42D674'; }}
+          onMouseOut={e =>  { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+        >
+          <span style={{ fontSize: 15 }}>{isDark ? '☀️' : '🌙'}</span>
+          {isDark ? 'Light mode' : 'Dark mode'}
+        </button>
+
         <div className="flex items-center gap-2 mb-2.5">
           <span className="w-2 h-2 rounded-full bg-brand flex-shrink-0 animate-pulse" />
           <p className="text-[11px] font-semibold text-brand">API Connected ✓</p>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search } from 'lucide-react';
+import { ThemeProvider }                          from './context/ThemeContext';
 import { AuthProvider, useAuth, getAuthHeader } from './context/AuthContext';
-import LandingPage   from './pages/LandingPage';
+import AuthPage       from './pages/AuthPage';
 import Sidebar       from './components/Sidebar';
 import BottomNav     from './components/BottomNav';
 import ScraperTab    from './components/ScraperTab';
@@ -88,7 +89,7 @@ function AppContent() {
   );
 
   if (isLoading) return <LoadingSpinner />;
-  if (!user)     return <LandingPage />;
+  if (!user)     return <AuthPage />;
 
   const crmPlaceIds = new Set(crmContacts.map(c => c.place_id));
 
@@ -199,8 +200,10 @@ function AppContent() {
 // ── Root ──────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

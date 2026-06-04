@@ -117,10 +117,10 @@ export default function HistoryTab({ runs }) {
       {/* ── Summary cards ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         {[
-          { label: 'Total Runs',    value: runs.length, color: '#374151', bg: '#f3f4f6', border: '#e5e7eb' },
-          { label: 'Total Added',   value: totalAdded,  color: '#2ab55d', bg: '#E3F0A3', border: '#BADBA2' },
-          { label: 'Total Skipped', value: totalSkipped,color: '#d97706', bg: '#fef3c7', border: '#fde68a' },
-          { label: 'Total Found',   value: totalFound,  color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe' },
+          { label: 'Total Runs',    value: runs.length,  color: 'var(--text-secondary)', bg: 'var(--bg-card)',        border: 'var(--border)' },
+          { label: 'Total Added',   value: totalAdded,   color: '#2ab55d',               bg: 'var(--card-complete)',  border: 'rgba(66,214,116,0.3)' },
+          { label: 'Total Skipped', value: totalSkipped, color: '#d97706',               bg: 'var(--card-partial)',   border: 'rgba(217,119,6,0.25)' },
+          { label: 'Total Found',   value: totalFound,   color: '#2563eb',               bg: 'var(--bg-card)',        border: 'var(--border)' },
         ].map(({ label, value, color, bg, border }) => (
           <div
             key={label}

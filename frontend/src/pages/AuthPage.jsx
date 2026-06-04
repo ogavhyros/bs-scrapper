@@ -126,8 +126,7 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center"
-         style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #E3F0A3 50%, #f0fdf4 100%)' }}>
+    <div className="auth-bg min-h-screen flex items-center justify-center">
       <div className="w-full max-w-[400px] bg-white rounded-2xl shadow-card-lg px-6 py-7 sm:px-8 sm:py-8 mx-4">
 
         {/* ── Logo ───────────────────────────────────────────────────────── */}
