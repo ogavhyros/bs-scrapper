@@ -597,6 +597,106 @@ app.delete('/api/crm/:place_id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── APHL AFRICA ROUTES ───────────────────────────────────────────────────────
+
+const parseN = (v) => parseFloat(v) || 0;
+
+// GET /api/aphl/overview
+app.get('/api/aphl/overview', requireAuth, async (_req, res) => {
+  try {
+    const [salesMonth, expMonth, expCat, recentSales, recentExp, monthlyRev, monthlyExp, trucks] = await Promise.all([
+      pool.query(`SELECT COALESCE(SUM(total_amount),0) AS revenue, COUNT(*)::int AS trips, COALESCE(SUM(volume_litres),0) AS litres
+                  FROM sales WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE)`),
+      pool.query(`SELECT COALESCE(SUM(amount),0) AS expenses FROM expenses WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE)`),
+      pool.query(`SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses GROUP BY category ORDER BY total DESC`),
+      pool.query(`SELECT * FROM sales ORDER BY date DESC, created_at DESC LIMIT 5`),
+      pool.query(`SELECT * FROM expenses ORDER BY date DESC, created_at DESC LIMIT 5`),
+      pool.query(`SELECT to_char(date_trunc('month',date),'Mon YY') AS month, date_trunc('month',date) AS mo, COALESCE(SUM(total_amount),0) AS revenue FROM sales GROUP BY date_trunc('month',date) ORDER BY mo DESC LIMIT 6`),
+      pool.query(`SELECT to_char(date_trunc('month',date),'Mon YY') AS month, date_trunc('month',date) AS mo, COALESCE(SUM(amount),0) AS expenses FROM expenses GROUP BY date_trunc('month',date) ORDER BY mo DESC LIMIT 6`),
+      pool.query(`SELECT truck, COUNT(*)::int AS trips, COALESCE(SUM(volume_litres),0) AS litres, COALESCE(SUM(total_amount),0) AS revenue, MAX(date) AS last_trip FROM sales WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE) AND truck IS NOT NULL GROUP BY truck`),
+    ]);
+
+    const revenue  = parseN(salesMonth.rows[0].revenue);
+    const expenses = parseN(expMonth.rows[0].expenses);
+
+    const monthMap = {};
+    for (const r of monthlyRev.rows)  { monthMap[r.month] = { month: r.month, revenue: parseN(r.revenue), expenses: 0 }; }
+    for (const r of monthlyExp.rows)  { if (!monthMap[r.month]) monthMap[r.month] = { month: r.month, revenue: 0, expenses: 0 }; monthMap[r.month].expenses = parseN(r.expenses); }
+    const monthlyChart = Object.values(monthMap).slice(0, 6).reverse();
+
+    const truckMap = {};
+    for (const t of trucks.rows) truckMap[t.truck] = { trips: t.trips, litres: parseN(t.litres), revenue: parseN(t.revenue), lastTrip: t.last_trip };
+
+    res.json({
+      revenue:  { thisMonth: revenue },
+      expenses: { thisMonth: expenses, byCategory: expCat.rows.map(r => ({ category: r.category, total: parseN(r.total) })) },
+      profit:   { thisMonth: revenue - expenses },
+      trips:    { thisMonth: salesMonth.rows[0].trips },
+      litres:   { thisMonth: parseN(salesMonth.rows[0].litres) },
+      distribution: { operations: +(revenue*0.25).toFixed(2), maintenance: +(revenue*0.10).toFixed(2), savings: +(revenue*0.10).toFixed(2), reinvestment: +(revenue*0.55).toFixed(2) },
+      recentSales: recentSales.rows, recentExpenses: recentExp.rows, monthlyChart, trucks: truckMap,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Sales CRUD
+app.get('/api/aphl/sales', requireAuth, async (_req, res) => {
+  try { const { rows } = await pool.query('SELECT * FROM sales ORDER BY date DESC, created_at DESC'); res.json(rows); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/aphl/sales', requireAuth, async (req, res) => {
+  const { date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck, driver, payment_status, waybill_number, notes } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO sales (date,customer_name,depot_name,product,volume_litres,rate_per_litre,truck,driver,payment_status,waybill_number,notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck||null, driver||null, payment_status||'Pending', waybill_number||null, notes||null]);
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put('/api/aphl/sales/:id', requireAuth, async (req, res) => {
+  const { date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck, driver, payment_status, waybill_number, notes } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE sales SET date=$1,customer_name=$2,depot_name=$3,product=$4,volume_litres=$5,rate_per_litre=$6,truck=$7,driver=$8,payment_status=$9,waybill_number=$10,notes=$11 WHERE id=$12 RETURNING *`,
+      [date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck||null, driver||null, payment_status, waybill_number||null, notes||null, req.params.id]);
+    res.json(rows[0] ?? {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete('/api/aphl/sales/:id', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM sales WHERE id=$1', [req.params.id]); res.json({ deleted: 1 }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Expenses CRUD
+app.get('/api/aphl/expenses', requireAuth, async (_req, res) => {
+  try { const { rows } = await pool.query('SELECT * FROM expenses ORDER BY date DESC, created_at DESC'); res.json(rows); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post('/api/aphl/expenses', requireAuth, async (req, res) => {
+  const { date, category, description, amount, truck, receipt_number, vendor, payment_method, notes } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO expenses (date,category,description,amount,truck,receipt_number,vendor,payment_method,notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [date, category, description, amount, truck||null, receipt_number||null, vendor||null, payment_method||'Cash', notes||null]);
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.put('/api/aphl/expenses/:id', requireAuth, async (req, res) => {
+  const { date, category, description, amount, truck, receipt_number, vendor, payment_method, notes } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE expenses SET date=$1,category=$2,description=$3,amount=$4,truck=$5,receipt_number=$6,vendor=$7,payment_method=$8,notes=$9 WHERE id=$10 RETURNING *`,
+      [date, category, description, amount, truck||null, receipt_number||null, vendor||null, payment_method||'Cash', notes||null, req.params.id]);
+    res.json(rows[0] ?? {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.delete('/api/aphl/expenses/:id', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM expenses WHERE id=$1', [req.params.id]); res.json({ deleted: 1 }); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── LINKEDIN ROUTES (NinjaPear — Proxycurl successor) ────────────────────────
 // NinjaPear's Employee Search returns employees of a company, optionally filtered
 // by role + geography. Base URL https://nubela.co/api/v1. Proxycurl was sunset.

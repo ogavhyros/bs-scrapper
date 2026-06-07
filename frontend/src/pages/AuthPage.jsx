@@ -146,7 +146,7 @@ export default function AuthPage() {
               <span style={{ color: '#42D674' }}>Scout</span>
             </div>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 5, letterSpacing: '0.3px' }}>
-              Smart contact intelligence
+              APHL Africa · Business Scout
             </div>
           </div>
         </div>

@@ -1,20 +1,24 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search } from 'lucide-react';
-import { ThemeProvider }                          from './context/ThemeContext';
-import { AuthProvider, useAuth, getAuthHeader } from './context/AuthContext';
-import AuthPage       from './pages/AuthPage';
-import Sidebar       from './components/Sidebar';
-import BottomNav     from './components/BottomNav';
-import ScraperTab    from './components/ScraperTab';
-import ContactsTab   from './components/ContactsTab';
-import HistoryTab    from './components/HistoryTab';
-import CRMTab        from './components/CRMTab';
-import LinkedInTab   from './components/LinkedInTab';
-import { useToast, ToastContainer } from './components/Toast';
+import { ThemeProvider }                           from './context/ThemeContext';
+import { AuthProvider, useAuth, getAuthHeader }  from './context/AuthContext';
+import { useToast, ToastContainer }              from './components/Toast';
+import AuthPage    from './pages/AuthPage';
+import Sidebar     from './components/Sidebar';
+import BottomNav   from './components/BottomNav';
+// APHL Africa
+import OverviewTab from './components/aphl/OverviewTab';
+import SalesTab    from './components/aphl/SalesTab';
+import ExpenseTab  from './components/aphl/ExpenseTab';
+// Business Scout
+import ScraperTab  from './components/ScraperTab';
+import ContactsTab from './components/ContactsTab';
+import HistoryTab  from './components/HistoryTab';
+import CRMTab      from './components/CRMTab';
+import LinkedInTab from './components/LinkedInTab';
 
 const API = import.meta.env.VITE_API_URL ?? '';
 
-// ── Priority classifier (shared across tabs) ─────────────────────────────────
+// ── Priority classifier (shared across tabs) ──────────────────────────────────
 export function getPriority(contact) {
   const p = Boolean(contact.phone);
   const w = Boolean(contact.website);
@@ -23,13 +27,16 @@ export function getPriority(contact) {
   return 'high';
 }
 
-// ── Page metadata ─────────────────────────────────────────────────────────────
+// ── Page titles ───────────────────────────────────────────────────────────────
 const PAGE_META = {
-  scraper:  (s) => ({ title: 'Contact Scraper', sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · up to 100 per search (5 pages × 20)`   }),
-  contacts: (s) => ({ title: 'All Contacts',    sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records`                         }),
-  history:  (s) => ({ title: 'Analytics',       sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history`                                      }),
-  crm:      (s) => ({ title: 'CRM Tracker',     sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups`                      }),
-  linkedin: (s) => ({ title: 'LinkedIn Scraper', sub: `${s.linkedinTotal} profile${s.linkedinTotal !== 1 ? 's' : ''} · employee search via NinjaPear`      }),
+  overview:  () => ({ title: 'Overview',          sub: 'APHL Africa dashboard — revenue, expenses & performance' }),
+  sales:     () => ({ title: 'Sales Logger',       sub: 'Log and track all fuel sales and deliveries' }),
+  expenses:  () => ({ title: 'Expense Logger',     sub: 'Track all operational costs and expenses' }),
+  scraper:   (s) => ({ title: 'Contact Scraper',   sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · up to 100 per search` }),
+  contacts:  (s) => ({ title: 'All Contacts',      sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records` }),
+  analytics: (s) => ({ title: 'Analytics',         sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history` }),
+  crm:       (s) => ({ title: 'CRM Tracker',       sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups` }),
+  linkedin:  (s) => ({ title: 'LinkedIn Scraper',  sub: `${s.linkedinTotal} profile${s.linkedinTotal !== 1 ? 's' : ''} · NinjaPear employee search` }),
 };
 
 // ── Loading spinner ───────────────────────────────────────────────────────────
@@ -44,13 +51,13 @@ function LoadingSpinner() {
   );
 }
 
-// ── Main app (rendered only when authenticated) ───────────────────────────────
+// ── Main app ─────────────────────────────────────────────────────────────────
 function AppContent() {
   const { user, isLoading, logout } = useAuth();
-  const [activeTab,   setActiveTab]   = useState('scraper');
-  const [contacts,    setContacts]    = useState([]);
-  const [runs,        setRuns]        = useState([]);
-  const [crmContacts, setCrmContacts] = useState([]);
+  const [activeTab,        setActiveTab]        = useState('overview');
+  const [contacts,         setContacts]         = useState([]);
+  const [runs,             setRuns]             = useState([]);
+  const [crmContacts,      setCrmContacts]      = useState([]);
   const [linkedinContacts, setLinkedinContacts] = useState([]);
   const { toasts, showToast } = useToast();
 
@@ -58,29 +65,21 @@ function AppContent() {
     try { setContacts(await (await fetch(`${API}/api/contacts`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('contacts:', e); }
   }, []);
-
   const fetchRuns = useCallback(async () => {
     try { setRuns(await (await fetch(`${API}/api/runs`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('runs:', e); }
   }, []);
-
   const fetchCrm = useCallback(async () => {
     try { setCrmContacts(await (await fetch(`${API}/api/crm`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('crm:', e); }
   }, []);
-
   const fetchLinkedin = useCallback(async () => {
     try { setLinkedinContacts(await (await fetch(`${API}/api/linkedin/contacts`, { headers: getAuthHeader() })).json()); }
     catch (e) { console.error('linkedin:', e); }
   }, []);
 
   useEffect(() => {
-    if (user) {
-      fetchContacts();
-      fetchRuns();
-      fetchCrm();
-      fetchLinkedin();
-    }
+    if (user) { fetchContacts(); fetchRuns(); fetchCrm(); fetchLinkedin(); }
   }, [user, fetchContacts, fetchRuns, fetchCrm, fetchLinkedin]);
 
   const refreshData = useCallback(
@@ -92,112 +91,76 @@ function AppContent() {
   if (!user)     return <AuthPage />;
 
   const crmPlaceIds = new Set(crmContacts.map(c => c.place_id));
-
   const stats = {
-    total:       contacts.length,
-    withPhone:   contacts.filter(c => c.phone).length,
-    withWebsite: contacts.filter(c => c.website).length,
-    runs:        runs.length,
-    critical:    contacts.filter(c => getPriority(c) === 'critical').length,
-    high:        contacts.filter(c => getPriority(c) === 'high').length,
-    normal:        contacts.filter(c => getPriority(c) === 'normal').length,
-    crmTotal:      crmContacts.length,
-    linkedinTotal: linkedinContacts.length,
+    total:        contacts.length,
+    runs:         runs.length,
+    critical:     contacts.filter(c => getPriority(c) === 'critical').length,
+    high:         contacts.filter(c => getPriority(c) === 'high').length,
+    normal:       contacts.filter(c => getPriority(c) === 'normal').length,
+    crmTotal:     crmContacts.length,
+    linkedinTotal:linkedinContacts.length,
   };
 
-  const page = (PAGE_META[activeTab] ?? PAGE_META.scraper)(stats);
+  const pageFn = PAGE_META[activeTab] ?? PAGE_META.overview;
+  const page   = pageFn(stats);
 
   return (
     <div className="flex h-screen bg-surface overflow-hidden">
 
-      {/* ── Desktop sidebar (hidden on mobile) ───────────────────────────── */}
+      {/* Sidebar — desktop */}
       <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        totalContacts={stats.total}
-        crmCount={stats.crmTotal}
-        linkedinCount={stats.linkedinTotal}
-        userEmail={user.email}
+        activeTab={activeTab} setActiveTab={setActiveTab}
+        totalContacts={stats.total} crmCount={stats.crmTotal}
+        linkedinCount={stats.linkedinTotal} userEmail={user.email}
         onLogout={logout}
       />
 
-      {/* ── Content area ─────────────────────────────────────────────────── */}
+      {/* Content area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Header — responsive */}
+        {/* Header */}
         <header className="flex-shrink-0 h-14 bg-panel border-b border-line flex items-center justify-between px-4 lg:px-8">
-          {/* Mobile: logo */}
           <div className="flex items-center gap-2 lg:hidden">
-            <div className="w-7 h-7 bg-brand rounded-nav flex items-center justify-center">
-              <Search size={13} className="text-white" />
-            </div>
-            <span className="text-[17px] font-extrabold text-brand tracking-tight leading-none">
-              Business Scout
-            </span>
+            <div style={{ width: 28, height: 28, background: '#42D674', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📍</div>
+            <span style={{ fontSize: 16, fontWeight: 800, color: '#42D674', letterSpacing: '-0.3px' }}>APHL Africa</span>
           </div>
-          {/* Desktop: welcome message */}
-          <p className="hidden lg:block text-sm text-ink-soft">
-            Welcome back!{' '}
-            <span className="text-ink font-medium">Here's what your scraper has collected.</span>
-          </p>
-          {/* Mobile: user avatar */}
-          <div
-            className="w-8 h-8 rounded-full bg-brand flex items-center justify-center
-                       text-white text-sm font-bold flex-shrink-0 lg:hidden"
-          >
+          <div className="hidden lg:block">
+            <h1 className="text-xl font-bold text-ink leading-tight">{page.title}</h1>
+            <p className="text-xs text-ink-soft mt-0.5">{page.sub}</p>
+          </div>
+          <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0 lg:hidden">
             {user.email[0].toUpperCase()}
           </div>
         </header>
 
-        {/* Scrollable page content */}
-        <main
-          className="flex-1 overflow-y-auto"
-          style={{ overscrollBehavior: 'contain' }}
-        >
-          <div className="px-4 lg:px-8 pt-6 lg:pt-7 pb-2">
-            <h1 className="text-2xl lg:text-3xl font-bold text-ink leading-tight">{page.title}</h1>
-            <p className="text-sm text-ink-soft mt-1">{page.sub}</p>
-          </div>
-
-          {/* Tab content — extra bottom padding on mobile for bottom nav */}
-          <div className="px-4 lg:px-8 pb-28 lg:pb-8 pt-4 lg:pt-5">
-            {activeTab === 'scraper'  && <ScraperTab  stats={stats} onRefresh={refreshData} />}
-            {activeTab === 'contacts' && (
-              <ContactsTab
-                contacts={contacts}
-                onRefresh={refreshData}
-                crmPlaceIds={crmPlaceIds}
-                showToast={showToast}
-              />
+        {/* Scrollable content */}
+        <main className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain' }}>
+          <div className="px-4 lg:px-8 pb-28 lg:pb-8 pt-5 lg:pt-6">
+            {activeTab === 'overview'  && <OverviewTab  onNavigate={setActiveTab} />}
+            {activeTab === 'sales'     && <SalesTab     showToast={showToast} />}
+            {activeTab === 'expenses'  && <ExpenseTab   showToast={showToast} />}
+            {activeTab === 'scraper'   && <ScraperTab   stats={stats} onRefresh={refreshData} />}
+            {activeTab === 'contacts'  && (
+              <ContactsTab contacts={contacts} onRefresh={refreshData} crmPlaceIds={crmPlaceIds} showToast={showToast} />
             )}
-            {activeTab === 'history'  && <HistoryTab  runs={runs} />}
-            {activeTab === 'crm'      && (
-              <CRMTab
-                crmContacts={crmContacts}
-                onRefresh={refreshData}
-                showToast={showToast}
-              />
+            {activeTab === 'analytics' && <HistoryTab   runs={runs} />}
+            {activeTab === 'crm'       && (
+              <CRMTab crmContacts={crmContacts} onRefresh={refreshData} showToast={showToast} />
             )}
-            {activeTab === 'linkedin' && (
-              <LinkedInTab
-                linkedinContacts={linkedinContacts}
-                onRefresh={refreshData}
-                showToast={showToast}
-              />
+            {activeTab === 'linkedin'  && (
+              <LinkedInTab linkedinContacts={linkedinContacts} onRefresh={refreshData} showToast={showToast} />
             )}
           </div>
         </main>
       </div>
 
-      {/* ── Mobile bottom nav (hidden on desktop) ────────────────────────── */}
+      {/* Mobile bottom nav */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
-
       <ToastContainer toasts={toasts} />
     </div>
   );
 }
 
-// ── Root ──────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
     <ThemeProvider>

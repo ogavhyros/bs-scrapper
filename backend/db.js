@@ -93,6 +93,43 @@ async function initDB() {
     )
   `);
 
+  // ── APHL Africa — Sales ───────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sales (
+      id             SERIAL PRIMARY KEY,
+      date           DATE NOT NULL,
+      customer_name  TEXT NOT NULL,
+      depot_name     TEXT NOT NULL,
+      product        TEXT NOT NULL,
+      volume_litres  NUMERIC NOT NULL,
+      rate_per_litre NUMERIC NOT NULL,
+      total_amount   NUMERIC GENERATED ALWAYS AS (volume_litres * rate_per_litre) STORED,
+      truck          TEXT,
+      driver         TEXT,
+      payment_status TEXT DEFAULT 'Pending',
+      waybill_number TEXT,
+      notes          TEXT,
+      created_at     TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // ── APHL Africa — Expenses ────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS expenses (
+      id             SERIAL PRIMARY KEY,
+      date           DATE NOT NULL,
+      category       TEXT NOT NULL,
+      description    TEXT NOT NULL,
+      amount         NUMERIC NOT NULL,
+      truck          TEXT,
+      receipt_number TEXT,
+      vendor         TEXT,
+      payment_method TEXT DEFAULT 'Cash',
+      notes          TEXT,
+      created_at     TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   // ── Column migrations — safe to run every startup ─────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);
