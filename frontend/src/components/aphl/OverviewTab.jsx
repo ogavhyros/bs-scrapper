@@ -71,16 +71,21 @@ export default function OverviewTab({ onNavigate }) {
     </div>
   );
 
-  const revenue  = data?.revenue?.thisMonth ?? 0;
-  const expenses = data?.expenses?.thisMonth ?? 0;
-  const profit   = data?.profit?.thisMonth ?? 0;
-  const trips    = data?.trips?.thisMonth ?? 0;
-  const dist     = data?.distribution ?? {};
-  const chart    = data?.monthlyChart ?? [];
-  const pie      = (data?.expenses?.byCategory ?? []).map((c, i) => ({
+  const revenue      = data?.revenue?.thisMonth ?? 0;
+  const directSales  = data?.revenue?.directSalesThisMonth ?? 0;
+  const leaseRev     = data?.revenue?.leasesThisMonth ?? 0;
+  const expenses     = data?.expenses?.thisMonth ?? 0;
+  const profit       = data?.profit?.thisMonth ?? 0;
+  const trips        = data?.trips?.thisMonth ?? 0;
+  const dist         = data?.distribution ?? {};
+  const chart        = data?.monthlyChart ?? [];
+  const pie          = (data?.expenses?.byCategory ?? []).map((c, i) => ({
     name: c.category, value: c.total, color: CAT_COLORS[c.category] || PIE_COLORS[i % PIE_COLORS.length],
   }));
-  const trucks   = data?.trucks ?? {};
+  const trucks       = data?.trucks ?? {};
+
+  const directPct = revenue > 0 ? Math.round((directSales / revenue) * 100) : 0;
+  const leasePct  = revenue > 0 ? Math.round((leaseRev   / revenue) * 100) : 0;
 
   const cardBg = 'var(--bg-card)';
   const border  = '1px solid var(--border)';
@@ -89,11 +94,45 @@ export default function OverviewTab({ onNavigate }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
       {/* ── Row 1: Metric cards ──────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        <MetricCard label="Total Revenue"  value={fmt(revenue)}  icon="💰" bg="rgba(66,214,116,0.1)"  textColor="#15803d"  sub={`${trips} trips this month`} />
-        <MetricCard label="Total Expenses" value={fmt(expenses)} icon="📤" bg="rgba(239,68,68,0.1)"   textColor="#dc2626"  sub="This month" />
-        <MetricCard label="Net Profit"     value={fmt(profit)}   icon="📈" bg="rgba(37,99,235,0.08)"  textColor="#1d4ed8"  sub={revenue > 0 ? `${((profit/revenue)*100).toFixed(1)}% margin` : '—'} />
-        <MetricCard label="Trips This Month" value={trips}       icon="🚛" bg="rgba(245,158,11,0.1)"  textColor="#92400e"  sub={fmtL(data?.litres?.thisMonth)} />
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        <MetricCard label="Total Revenue"    value={fmt(revenue)}    icon="💰" bg="rgba(66,214,116,0.1)"  textColor="#15803d"  sub={`${trips} trips this month`} />
+        <MetricCard label="Direct Sales"     value={fmt(directSales)} icon="🛢" bg="rgba(66,214,116,0.07)" textColor="#15803d"  sub={`${directPct}% of revenue`} />
+        <MetricCard label="Truck Lease Rev." value={fmt(leaseRev)}    icon="🚛" bg="rgba(37,99,235,0.08)"  textColor="#1d4ed8"  sub={`${leasePct}% of revenue`} />
+        <MetricCard label="Total Expenses"   value={fmt(expenses)}    icon="📤" bg="rgba(239,68,68,0.1)"   textColor="#dc2626"  sub="This month" />
+        <MetricCard label="Net Profit"       value={fmt(profit)}      icon="📈" bg="rgba(139,92,246,0.08)" textColor="#7c3aed"  sub={revenue > 0 ? `${((profit/revenue)*100).toFixed(1)}% margin` : '—'} />
+      </div>
+
+      {/* ── Revenue Sources bar ──────────────────────────────────────────── */}
+      <div style={{ background: cardBg, border, borderRadius: 14, padding: 20 }}>
+        <SectionHeader title="Revenue Sources — This Month" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {[
+            { label: 'Direct Sales',  val: directSales, pct: directPct, color: '#42D674', bg: 'rgba(66,214,116,0.12)'  },
+            { label: 'Truck Leases',  val: leaseRev,    pct: leasePct,  color: '#3b82f6', bg: 'rgba(59,130,246,0.10)'  },
+          ].map(s => (
+            <div key={s.label}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{s.label}</span>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: s.color }}>{fmt(s.val)}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>{s.pct}%</span>
+                </div>
+              </div>
+              <div style={{ height: 8, background: 'var(--bg-input)', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${s.pct}%`, background: s.color, borderRadius: 99, transition: 'width 0.6s ease' }} />
+              </div>
+            </div>
+          ))}
+          {/* combined visual bar */}
+          <div style={{ height: 10, borderRadius: 99, overflow: 'hidden', display: 'flex', marginTop: 4 }}>
+            <div style={{ width: `${directPct}%`, background: '#42D674', transition: 'width 0.6s ease' }} />
+            <div style={{ flex: 1, background: '#3b82f6' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 20 }}>
+            <span style={{ fontSize: 12, color: '#15803d', fontWeight: 600 }}>🟢 {directPct}% Direct Sales</span>
+            <span style={{ fontSize: 12, color: '#1d4ed8', fontWeight: 600 }}>🔵 {leasePct}% Truck Leases</span>
+          </div>
+        </div>
       </div>
 
       {/* ── Row 2: Recent Sales + Recent Expenses ────────────────────────── */}
@@ -112,7 +151,12 @@ export default function OverviewTab({ onNavigate }) {
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{s.customer_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.depot_name} · {s.product} · {Number(s.volume_litres).toLocaleString()}L</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        {s.transaction_type === 'truck_lease'
+                          ? `🚛 ${s.origin || '?'} → ${s.destination || '?'}`
+                          : `🛢 ${s.depot_name || ''} · ${s.product || ''} · ${Number(s.volume_litres || 0).toLocaleString()}L`
+                        }
+                      </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>{fmt(s.total_amount)}</div>

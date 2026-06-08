@@ -605,8 +605,13 @@ const parseN = (v) => parseFloat(v) || 0;
 app.get('/api/aphl/overview', requireAuth, async (_req, res) => {
   try {
     const [salesMonth, expMonth, expCat, recentSales, recentExp, monthlyRev, monthlyExp, trucks] = await Promise.all([
-      pool.query(`SELECT COALESCE(SUM(total_amount),0) AS revenue, COUNT(*)::int AS trips, COALESCE(SUM(volume_litres),0) AS litres
-                  FROM sales WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE)`),
+      pool.query(`SELECT
+          COALESCE(SUM(total_amount),0) AS revenue,
+          COALESCE(SUM(CASE WHEN transaction_type='direct_sale' THEN total_amount ELSE 0 END),0) AS direct_sales,
+          COALESCE(SUM(CASE WHEN transaction_type='truck_lease'  THEN total_amount ELSE 0 END),0) AS truck_leases,
+          COUNT(*)::int AS trips,
+          COALESCE(SUM(volume_litres),0) AS litres
+        FROM sales WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE)`),
       pool.query(`SELECT COALESCE(SUM(amount),0) AS expenses FROM expenses WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE)`),
       pool.query(`SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses GROUP BY category ORDER BY total DESC`),
       pool.query(`SELECT * FROM sales ORDER BY date DESC, created_at DESC LIMIT 5`),
@@ -616,7 +621,8 @@ app.get('/api/aphl/overview', requireAuth, async (_req, res) => {
       pool.query(`SELECT truck, COUNT(*)::int AS trips, COALESCE(SUM(volume_litres),0) AS litres, COALESCE(SUM(total_amount),0) AS revenue, MAX(date) AS last_trip FROM sales WHERE date_trunc('month',date)=date_trunc('month',CURRENT_DATE) AND truck IS NOT NULL GROUP BY truck`),
     ]);
 
-    const revenue  = parseN(salesMonth.rows[0].revenue);
+    const sm       = salesMonth.rows[0];
+    const revenue  = parseN(sm.revenue);
     const expenses = parseN(expMonth.rows[0].expenses);
 
     const monthMap = {};
@@ -628,11 +634,15 @@ app.get('/api/aphl/overview', requireAuth, async (_req, res) => {
     for (const t of trucks.rows) truckMap[t.truck] = { trips: t.trips, litres: parseN(t.litres), revenue: parseN(t.revenue), lastTrip: t.last_trip };
 
     res.json({
-      revenue:  { thisMonth: revenue },
+      revenue: {
+        thisMonth:            revenue,
+        directSalesThisMonth: parseN(sm.direct_sales),
+        leasesThisMonth:      parseN(sm.truck_leases),
+      },
       expenses: { thisMonth: expenses, byCategory: expCat.rows.map(r => ({ category: r.category, total: parseN(r.total) })) },
       profit:   { thisMonth: revenue - expenses },
-      trips:    { thisMonth: salesMonth.rows[0].trips },
-      litres:   { thisMonth: parseN(salesMonth.rows[0].litres) },
+      trips:    { thisMonth: sm.trips },
+      litres:   { thisMonth: parseN(sm.litres) },
       distribution: { operations: +(revenue*0.25).toFixed(2), maintenance: +(revenue*0.10).toFixed(2), savings: +(revenue*0.10).toFixed(2), reinvestment: +(revenue*0.55).toFixed(2) },
       recentSales: recentSales.rows, recentExpenses: recentExp.rows, monthlyChart, trucks: truckMap,
     });
@@ -644,22 +654,54 @@ app.get('/api/aphl/sales', requireAuth, async (_req, res) => {
   try { const { rows } = await pool.query('SELECT * FROM sales ORDER BY date DESC, created_at DESC'); res.json(rows); }
   catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+function computeTotalAmount(body) {
+  const { transaction_type, volume_litres, rate_per_litre, haulage_rate } = body;
+  if (transaction_type === 'truck_lease') return parseFloat(haulage_rate) || 0;
+  return (parseFloat(volume_litres) || 0) * (parseFloat(rate_per_litre) || 0);
+}
+
 app.post('/api/aphl/sales', requireAuth, async (req, res) => {
-  const { date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck, driver, payment_status, waybill_number, notes } = req.body;
+  const { date, transaction_type, customer_name, customer_phone, customer_address,
+          depot_name, product, volume_litres, rate_per_litre, product_amount,
+          origin, destination, haulage_rate, distance_km, product_type, lease_volume_litres,
+          truck, driver, payment_status, waybill_number, notes } = req.body;
+  const total_amount = computeTotalAmount(req.body);
   try {
-    const { rows } = await pool.query(
-      `INSERT INTO sales (date,customer_name,depot_name,product,volume_litres,rate_per_litre,truck,driver,payment_status,waybill_number,notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck||null, driver||null, payment_status||'Pending', waybill_number||null, notes||null]);
+    const { rows } = await pool.query(`
+      INSERT INTO sales
+        (date,transaction_type,customer_name,customer_phone,customer_address,
+         depot_name,product,volume_litres,rate_per_litre,product_amount,
+         origin,destination,haulage_rate,distance_km,product_type,lease_volume_litres,
+         total_amount,truck,driver,payment_status,waybill_number,notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+      RETURNING *`,
+      [date, transaction_type||'direct_sale', customer_name, customer_phone||null, customer_address||null,
+       depot_name||null, product||null, volume_litres||null, rate_per_litre||null, product_amount||null,
+       origin||null, destination||null, haulage_rate||null, distance_km||null, product_type||null, lease_volume_litres||null,
+       total_amount, truck||null, driver||null, payment_status||'Pending', waybill_number||null, notes||null]);
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 app.put('/api/aphl/sales/:id', requireAuth, async (req, res) => {
-  const { date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck, driver, payment_status, waybill_number, notes } = req.body;
+  const { date, transaction_type, customer_name, customer_phone, customer_address,
+          depot_name, product, volume_litres, rate_per_litre, product_amount,
+          origin, destination, haulage_rate, distance_km, product_type, lease_volume_litres,
+          truck, driver, payment_status, waybill_number, notes } = req.body;
+  const total_amount = computeTotalAmount(req.body);
   try {
-    const { rows } = await pool.query(
-      `UPDATE sales SET date=$1,customer_name=$2,depot_name=$3,product=$4,volume_litres=$5,rate_per_litre=$6,truck=$7,driver=$8,payment_status=$9,waybill_number=$10,notes=$11 WHERE id=$12 RETURNING *`,
-      [date, customer_name, depot_name, product, volume_litres, rate_per_litre, truck||null, driver||null, payment_status, waybill_number||null, notes||null, req.params.id]);
+    const { rows } = await pool.query(`
+      UPDATE sales SET
+        date=$1,transaction_type=$2,customer_name=$3,customer_phone=$4,customer_address=$5,
+        depot_name=$6,product=$7,volume_litres=$8,rate_per_litre=$9,product_amount=$10,
+        origin=$11,destination=$12,haulage_rate=$13,distance_km=$14,product_type=$15,lease_volume_litres=$16,
+        total_amount=$17,truck=$18,driver=$19,payment_status=$20,waybill_number=$21,notes=$22
+      WHERE id=$23 RETURNING *`,
+      [date, transaction_type||'direct_sale', customer_name, customer_phone||null, customer_address||null,
+       depot_name||null, product||null, volume_litres||null, rate_per_litre||null, product_amount||null,
+       origin||null, destination||null, haulage_rate||null, distance_km||null, product_type||null, lease_volume_litres||null,
+       total_amount, truck||null, driver||null, payment_status, waybill_number||null, notes||null,
+       req.params.id]);
     res.json(rows[0] ?? {});
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

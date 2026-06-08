@@ -96,22 +96,56 @@ async function initDB() {
   // ── APHL Africa — Sales ───────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sales (
-      id             SERIAL PRIMARY KEY,
-      date           DATE NOT NULL,
-      customer_name  TEXT NOT NULL,
-      depot_name     TEXT NOT NULL,
-      product        TEXT NOT NULL,
-      volume_litres  NUMERIC NOT NULL,
-      rate_per_litre NUMERIC NOT NULL,
-      total_amount   NUMERIC GENERATED ALWAYS AS (volume_litres * rate_per_litre) STORED,
-      truck          TEXT,
-      driver         TEXT,
-      payment_status TEXT DEFAULT 'Pending',
-      waybill_number TEXT,
-      notes          TEXT,
-      created_at     TIMESTAMP DEFAULT NOW()
+      id               SERIAL PRIMARY KEY,
+      date             DATE NOT NULL,
+      transaction_type TEXT NOT NULL DEFAULT 'direct_sale',
+      customer_name    TEXT NOT NULL,
+      customer_phone   TEXT,
+      customer_address TEXT,
+      depot_name       TEXT,
+      product          TEXT,
+      volume_litres    NUMERIC,
+      rate_per_litre   NUMERIC,
+      product_amount   NUMERIC,
+      origin           TEXT,
+      destination      TEXT,
+      haulage_rate     NUMERIC,
+      distance_km      NUMERIC,
+      product_type     TEXT,
+      lease_volume_litres NUMERIC,
+      total_amount     NUMERIC NOT NULL DEFAULT 0,
+      truck            TEXT,
+      driver           TEXT,
+      payment_status   TEXT DEFAULT 'Pending',
+      waybill_number   TEXT,
+      notes            TEXT,
+      created_at       TIMESTAMP DEFAULT NOW()
     )
   `);
+  // ── Sales table migrations (safe on every startup) ───────────────────────
+  // Convert generated total_amount → regular column if needed
+  await pool.query(`
+    DO $$ BEGIN
+      BEGIN
+        ALTER TABLE sales ALTER COLUMN total_amount DROP EXPRESSION;
+      EXCEPTION WHEN OTHERS THEN NULL;
+      END;
+    END $$
+  `);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS transaction_type TEXT DEFAULT 'direct_sale'`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_phone TEXT`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_address TEXT`);
+  await pool.query(`ALTER TABLE sales ALTER COLUMN depot_name DROP NOT NULL`);
+  await pool.query(`ALTER TABLE sales ALTER COLUMN product DROP NOT NULL`);
+  await pool.query(`ALTER TABLE sales ALTER COLUMN volume_litres DROP NOT NULL`);
+  await pool.query(`ALTER TABLE sales ALTER COLUMN rate_per_litre DROP NOT NULL`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS product_amount NUMERIC`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS origin TEXT`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS destination TEXT`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS haulage_rate NUMERIC`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS distance_km NUMERIC`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS product_type TEXT`);
+  await pool.query(`ALTER TABLE sales ADD COLUMN IF NOT EXISTS lease_volume_litres NUMERIC`);
 
   // ── APHL Africa — Expenses ────────────────────────────────────────────────
   await pool.query(`
