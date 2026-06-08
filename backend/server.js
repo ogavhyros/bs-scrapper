@@ -768,47 +768,9 @@ app.delete('/api/aphl/expenses/:id', requireAuth, async (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── LINKEDIN ROUTES (NinjaPear — Proxycurl successor) ────────────────────────
-// NinjaPear's Employee Search returns employees of a company, optionally filtered
-// by role + geography. Base URL https://nubela.co/api/v1. Proxycurl was sunset.
+// ─── LINKEDIN ROUTES (Apollo.io) ─────────────────────────────────────────────
 
-const NINJAPEAR_BASE = 'https://nubela.co/api/v1';
-const linkedinApiKey = () => process.env.NINJAPEAR_API_KEY || process.env.PROXYCURL_API_KEY || '';
-
-// Country name → ISO 3166-1 alpha-2 (NinjaPear's `country` filter requires a code).
-const COUNTRY_CODES = {
-  nigeria: 'NG', 'united states': 'US', usa: 'US', us: 'US', america: 'US',
-  'united kingdom': 'GB', uk: 'GB', england: 'GB', britain: 'GB',
-  canada: 'CA', australia: 'AU', germany: 'DE', france: 'FR', spain: 'ES',
-  italy: 'IT', netherlands: 'NL', india: 'IN', 'south africa': 'ZA',
-  ghana: 'GH', kenya: 'KE', ireland: 'IE', singapore: 'SG',
-  uae: 'AE', 'united arab emirates': 'AE', brazil: 'BR', mexico: 'MX',
-};
-
-// Returns a valid alpha-2 code or null. Accepts a 2-letter code as-is.
-function toCountryCode(location = '') {
-  const loc = location.trim().toLowerCase();
-  if (/^[a-z]{2}$/.test(loc)) return loc.toUpperCase();
-  for (const [name, code] of Object.entries(COUNTRY_CODES)) {
-    if (loc.includes(name)) return code;
-  }
-  return null;
-}
-
-// Normalise a company input ("https://www.stripe.com/" → "stripe.com")
-function normaliseDomain(input = '') {
-  return input.trim()
-    .replace(/^https?:\/\//i, '')
-    .replace(/^www\./i, '')
-    .replace(/\/.*$/, '')
-    .toLowerCase();
-}
-
-// Pretty company name from a domain ("stripe.com" → "Stripe")
-function companyNameFromDomain(domain = '') {
-  const base = domain.split('.')[0] || domain;
-  return base ? base.charAt(0).toUpperCase() + base.slice(1) : null;
-}
+const apolloApiKey = () => process.env.APOLLO_API_KEY || '';
 
 const LINKEDIN_STATUSES = new Set(['Not Contacted', 'Contacted', 'Connected', 'Not Interested']);
 
@@ -820,42 +782,38 @@ app.get('/api/linkedin/contacts', requireAuth, async (_req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/linkedin/config — tells the frontend whether a key is present
+// GET /api/linkedin/config — tells the frontend whether an Apollo key is present
 app.get('/api/linkedin/config', requireAuth, (_req, res) => {
-  res.json({ hasKey: Boolean(linkedinApiKey()) });
+  res.json({ hasKey: Boolean(apolloApiKey()) });
 });
 
-// POST /api/linkedin/scrape — NinjaPear Employee Search (company-based, free key)
+// POST /api/linkedin/scrape — Apollo.io People Search
 app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
-  const apiKey = linkedinApiKey();
-  if (!apiKey) return res.status(400).json({ error: 'No NinjaPear API key is set on the server.' });
+  const apiKey = apolloApiKey();
+  if (!apiKey) return res.status(400).json({ error: 'APOLLO_API_KEY is not set on the server.' });
 
-  const { company_website, keyword, location } = req.body; // keyword = job role (optional)
-  let   limit = parseInt(req.body.limit, 10) || 25;
-  limit = Math.min(Math.max(limit, 1), 100);
+  const { job_title, location } = req.body;
+  const limit = Math.min(Math.max(parseInt(req.body.limit, 10) || 25, 1), 100);
 
-  const domain = normaliseDomain(company_website || '');
-  if (!domain) return res.status(400).json({ error: 'A company name or domain is required (e.g. dangote.com).' });
+  if (!job_title?.trim()) return res.status(400).json({ error: 'Job title is required.' });
+  if (!location?.trim())  return res.status(400).json({ error: 'Location is required.' });
 
-  // NinjaPear requires a role; default to a broad term so "all staff" still works.
-  const role  = (keyword && keyword.trim()) || 'employee';
   const today = new Date().toISOString().split('T')[0];
 
   try {
-    const params = { company_website: domain, role }; // role always sent
-    const countryCode = toCountryCode(location || '');
-    if (countryCode) params.country = countryCode; // NinjaPear needs an ISO alpha-2 code
+    const searchRes = await axios.post(
+      'https://api.apollo.io/v1/mixed_people/search',
+      {
+        api_key:          apiKey,
+        q_person_title:   job_title.trim(),
+        person_locations: [location.trim()],
+        per_page:         limit,
+        page:             1,
+      },
+      { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
+    );
 
-    const searchRes = await axios.get(`${NINJAPEAR_BASE}/employee/search`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      params,
-      timeout: 30000,
-    });
-
-    const data      = searchRes.data || {};
-    const employees = data.employees || data.results || [];
-    const collected = employees.slice(0, limit);
-    const company   = companyNameFromDomain(domain);
+    const people = searchRes.data?.people || [];
 
     let added = 0, skipped = 0;
     const mapped = [];
@@ -863,34 +821,35 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
     try {
       await client.query('BEGIN');
-      for (const e of collected) {
-        const first   = e.first_name || null;
-        const last    = e.last_name  || null;
-        const empRole = e.role || e.title || keyword || null;
-        // NinjaPear returns an enrichment URL per employee; use it as the dedup key.
-        const profileUrl = e.person_profile || e.profile_url
-          || [first, last, domain].filter(Boolean).join('-').toLowerCase().replace(/\s+/g, '-');
-        if (!first && !last) { skipped++; continue; }
+      for (const p of people) {
+        if (!p.name && !p.first_name && !p.last_name) { skipped++; continue; }
+
+        // Use LinkedIn URL as dedup key, fall back to Apollo id
+        const profileUrl = p.linkedin_url
+          ? p.linkedin_url.replace(/\/$/, '')
+          : `apollo:${p.id}`;
+
+        const locationStr = [p.city, p.state, p.country].filter(Boolean).join(', ') || location || null;
+        const phone       = p.phone_numbers?.[0]?.sanitized_number || null;
 
         const contact = {
           profile_url:       profileUrl,
-          full_name:         [first, last].filter(Boolean).join(' ') || null,
-          first_name:        first,
-          last_name:         last,
-          headline:          empRole,
-          current_company:   e.company_name || company,
-          current_title:     empRole,
-          location:          location || null,
-          // NinjaPear returns an enrichment *URL* in work_email, not an address.
-          email:             (e.work_email && e.work_email.includes('@') && !/^https?:/i.test(e.work_email)) ? e.work_email : null,
-          phone:             null,                    // requires separate enrichment call
-          linkedin_url:      null,                    // NinjaPear does not return public LinkedIn URLs
-          profile_picture:   null,
+          full_name:         p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
+          first_name:        p.first_name  || null,
+          last_name:         p.last_name   || null,
+          headline:          p.headline    || p.title || null,
+          current_company:   p.organization?.name || null,
+          current_title:     p.title       || null,
+          location:          locationStr,
+          email:             p.email       || null,
+          phone,
+          linkedin_url:      p.linkedin_url || null,
+          profile_picture:   p.photo_url   || null,
           connections:       null,
           summary:           null,
           scraped_date:      today,
-          keyword_searched:  keyword || '',
-          location_searched: location || '',
+          keyword_searched:  job_title,
+          location_searched: location,
         };
 
         const result = await client.query(`
@@ -917,24 +876,20 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     }
     client.release();
 
-    res.json({ added, skipped, total_found: collected.length, contacts: mapped });
+    res.json({ added, skipped, total_found: people.length, contacts: mapped });
   } catch (err) {
     const status = err.response?.status;
     const data   = err.response?.data;
-    let detail = err.message;
-    if (typeof data === 'string') detail = data;
-    else if (data && typeof data === 'object') {
-      detail = data.description || data.detail
-            || (typeof data.error === 'string' ? data.error : data.error?.message)
-            || data.message
-            || JSON.stringify(data);
+    let detail   = err.message;
+    if (data && typeof data === 'object') {
+      detail = data.error || data.message || JSON.stringify(data);
     }
-    console.error('LinkedIn (NinjaPear) error:', status, detail);
+    console.error('Apollo (LinkedIn) error:', status, detail);
     if (status === 401 || status === 403) {
-      return res.status(400).json({ error: 'NinjaPear rejected the API key (invalid or out of credits).' });
+      return res.status(400).json({ error: 'Apollo rejected the API key — check APOLLO_API_KEY.' });
     }
-    if (status === 400 || status === 404) {
-      return res.status(400).json({ error: `NinjaPear: ${detail}` });
+    if (status === 422) {
+      return res.status(400).json({ error: `Apollo validation error: ${detail}` });
     }
     res.status(500).json({ error: 'LinkedIn search failed: ' + detail });
   }
