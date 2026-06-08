@@ -225,8 +225,13 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
                 `&radius=${radius || 5000}&key=${apiKey}`;
       if (pageToken) url += `&pagetoken=${pageToken}`;
 
+      console.log('Scrape URL:', url);
+      console.log('API Key first 10 chars:', apiKey?.substring(0, 10));
+
       const response = await fetch(url);
       const data     = await response.json();
+
+      console.log('Full Google response:', JSON.stringify(data));
 
       if (data.status === 'REQUEST_DENIED' || data.status === 'INVALID_REQUEST') {
         send({ type: 'error', message: `Google API: ${data.status} — ${data.error_message || 'Check your API key.'}` });
