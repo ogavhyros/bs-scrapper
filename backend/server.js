@@ -220,21 +220,25 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
     do {
       sendProgress(`Fetching page ${pageCount + 1} of up to ${maxPages}…`);
 
+      const query = `${keyword} ${location}`;
       let url = `https://maps.googleapis.com/maps/api/place/textsearch/json` +
-                `?query=${encodeURIComponent(keyword + ' in ' + location)}` +
+                `?query=${encodeURIComponent(query)}` +
                 `&radius=${radius || 5000}&key=${apiKey}`;
       if (pageToken) url += `&pagetoken=${pageToken}`;
-
-      console.log('Scrape URL:', url);
-      console.log('API Key first 10 chars:', apiKey?.substring(0, 10));
 
       const response = await fetch(url);
       const data     = await response.json();
 
-      console.log('Full Google response:', JSON.stringify(data));
+      console.log('Results count:', data.results?.length);
 
-      if (data.status === 'REQUEST_DENIED' || data.status === 'INVALID_REQUEST') {
-        send({ type: 'error', message: `Google API: ${data.status} — ${data.error_message || 'Check your API key.'}` });
+      if (data.status === 'REQUEST_DENIED') {
+        send({ type: 'error', message: `Google API: REQUEST_DENIED — ${data.error_message || 'Check your API key and billing.'}` });
+        return res.end();
+      }
+      if (data.status === 'INVALID_REQUEST') {
+        // pageToken not yet warmed up — stop paginating and process what we have
+        if (allPlaces.length > 0) break;
+        send({ type: 'error', message: `Google API: INVALID_REQUEST — ${data.error_message || 'Bad request parameters.'}` });
         return res.end();
       }
       if (data.status === 'ZERO_RESULTS') break;
@@ -257,6 +261,7 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
 
     // ── 2. Fetch Place Details in batches of 5 ────────────────────────────────
     sendProgress(`Getting contact details for ${allPlaces.length} businesses…`);
+    console.log('Processing results...');
 
     const today    = new Date().toISOString().split('T')[0];
     const enriched = [];
@@ -325,6 +330,9 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
       client.release();
     }
 
+    console.log('New contacts added:', new_added);
+    console.log('Duplicates skipped:', skipped);
+
     // ── 4. Log run ────────────────────────────────────────────────────────────
     await pool.query(
       'INSERT INTO runs (keyword, location, date, added, skipped, total) VALUES ($1, $2, $3, $4, $5, $6)',
@@ -337,6 +345,7 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
 
   } catch (err) {
     console.error('Scrape error:', err.message);
+    console.error('Stack:', err.stack);
     send({ type: 'error', message: 'Scrape failed: ' + err.message });
     res.end();
   }

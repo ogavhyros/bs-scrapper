@@ -152,6 +152,7 @@ export default function ScraperTab({ stats, onRefresh }) {
         body: JSON.stringify({ keyword, location, radius }),
       });
 
+      console.log('Scrape response status:', scrapeRes.status);
       // Pre-SSE validation errors return plain JSON with a non-200 status
       if (!scrapeRes.ok) {
         const err = await scrapeRes.json();
@@ -178,6 +179,7 @@ export default function ScraperTab({ stats, onRefresh }) {
           let evt;
           try { evt = JSON.parse(line.slice(6)); } catch { continue; }
 
+          console.log('Scrape response data:', evt);
           if (evt.type === 'progress') {
             setStatus({ type: 'info', message: evt.message });
           } else if (evt.type === 'error') {
