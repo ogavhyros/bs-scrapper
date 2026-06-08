@@ -588,6 +588,21 @@ app.post('/api/crm/add', requireAuth, async (req, res) => {
   res.json({ added, skipped });
 });
 
+// ─── PATCH /api/crm/bulk ─────────────────────────────────────────────────────
+app.patch('/api/crm/bulk', requireAuth, async (req, res) => {
+  const { place_ids, status } = req.body;
+  if (!Array.isArray(place_ids) || place_ids.length === 0 || !status) {
+    return res.status(400).json({ error: 'place_ids array and status are required.' });
+  }
+  try {
+    const result = await pool.query(
+      'UPDATE crm_contacts SET status = $1, updated_at = NOW() WHERE place_id = ANY($2)',
+      [status, place_ids]
+    );
+    res.json({ updated: result.rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.patch('/api/crm/:place_id', requireAuth, async (req, res) => {
   const { place_id } = req.params;
   const fields = Object.keys(req.body).filter(k => ALLOWED_CRM_FIELDS.has(k));
