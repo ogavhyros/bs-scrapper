@@ -164,6 +164,29 @@ async function initDB() {
     )
   `);
 
+  // ── APHL Africa — Rate Calculations ──────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rate_calculations (
+      id                  SERIAL PRIMARY KEY,
+      route               TEXT,
+      product             TEXT,
+      volume_litres       NUMERIC,
+      truck               TEXT,
+      diesel_litres       NUMERIC,
+      diesel_price        NUMERIC,
+      diesel_cost         NUMERIC,
+      total_trip_expenses NUMERIC,
+      company_overhead    NUMERIC,
+      total_cost          NUMERIC,
+      target_margin       NUMERIC,
+      break_even_rate     NUMERIC,
+      recommended_rate    NUMERIC,
+      total_revenue       NUMERIC,
+      net_profit          NUMERIC,
+      calculated_at       TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   // ── Column migrations — safe to run every startup ─────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);

@@ -958,5 +958,56 @@ app.get('/api/linkedin/export', requireAuth, async (_req, res) => {
   }
 });
 
+// ─── RATE CALCULATIONS ────────────────────────────────────────────────────────
+
+app.post('/api/aphl/calculations', requireAuth, async (req, res) => {
+  const {
+    route, product, volume_litres, truck,
+    diesel_litres, diesel_price, diesel_cost,
+    total_trip_expenses, company_overhead, total_cost,
+    target_margin, break_even_rate, recommended_rate,
+    total_revenue, net_profit,
+  } = req.body;
+  try {
+    const { rows } = await pool.query(`
+      INSERT INTO rate_calculations
+        (route, product, volume_litres, truck, diesel_litres, diesel_price, diesel_cost,
+         total_trip_expenses, company_overhead, total_cost, target_margin,
+         break_even_rate, recommended_rate, total_revenue, net_profit)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      RETURNING *
+    `, [
+      route || null, product, volume_litres, truck,
+      diesel_litres, diesel_price, diesel_cost,
+      total_trip_expenses, company_overhead, total_cost,
+      target_margin, break_even_rate, recommended_rate,
+      total_revenue, net_profit,
+    ]);
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/aphl/calculations', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM rate_calculations ORDER BY calculated_at DESC LIMIT 20'
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/aphl/calculations/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM rate_calculations WHERE id = $1', [req.params.id]);
+    res.json({ deleted: result.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`\n  Business Scout API  →  http://localhost:${PORT}\n`));

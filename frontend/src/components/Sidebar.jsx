@@ -1,13 +1,14 @@
-import { Home, TrendingUp, Receipt, Search, Users, Phone, BarChart2, LogOut } from 'lucide-react';
+import { Home, TrendingUp, Receipt, Calculator, Search, Users, Phone, BarChart2, LogOut } from 'lucide-react';
 import LinkedInIcon from './LinkedInIcon';
 import { useTheme } from '../context/ThemeContext';
 
 // ── Nav sections ──────────────────────────────────────────────────────────────
 
 const APHL_NAV = [
-  { id: 'overview',  label: 'Overview',        icon: Home       },
-  { id: 'sales',     label: 'Sales Logger',     icon: TrendingUp },
-  { id: 'expenses',  label: 'Expense Logger',   icon: Receipt    },
+  { id: 'overview',    label: 'Overview',        icon: Home       },
+  { id: 'sales',       label: 'Sales Logger',    icon: TrendingUp },
+  { id: 'expenses',    label: 'Expense Logger',  icon: Receipt    },
+  { id: 'calculator',  label: 'Rate Calculator', icon: Calculator },
 ];
 
 const SCOUT_NAV = [
