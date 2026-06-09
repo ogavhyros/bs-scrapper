@@ -1250,5 +1250,67 @@ app.delete('/api/aphl/calculations/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ─── DIESEL PRICE ROUTES ──────────────────────────────────────────────────────
+
+// GET /api/aphl/diesel — current settings + price history
+app.get('/api/aphl/diesel', requireAuth, async (_req, res) => {
+  try {
+    const [priceRows, settingsRows] = await Promise.all([
+      pool.query('SELECT * FROM diesel_prices ORDER BY recorded_at DESC LIMIT 30'),
+      pool.query('SELECT * FROM diesel_price_settings WHERE id = 1'),
+    ]);
+    res.json({
+      prices:   priceRows.rows,
+      settings: settingsRows.rows[0] || { current_depot_price: 0, market_markup: 50 },
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/aphl/diesel — record new official depot price
+app.post('/api/aphl/diesel', requireAuth, async (req, res) => {
+  const { depot_price, source, notes } = req.body;
+  const dp = parseFloat(depot_price);
+  if (!dp || isNaN(dp)) return res.status(400).json({ error: 'depot_price is required' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'INSERT INTO diesel_prices (depot_price, source, notes) VALUES ($1, $2, $3) RETURNING *',
+      [dp, source || 'Manual', notes || null]
+    );
+    await client.query(
+      'UPDATE diesel_price_settings SET current_depot_price = $1, updated_at = NOW() WHERE id = 1',
+      [dp]
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally { client.release(); }
+});
+
+// DELETE /api/aphl/diesel/:id
+app.delete('/api/aphl/diesel/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM diesel_prices WHERE id = $1', [req.params.id]);
+    res.json({ deleted: result.rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/aphl/diesel/settings — update trip fuel markup
+app.put('/api/aphl/diesel/settings', requireAuth, async (req, res) => {
+  const mu = parseFloat(req.body.market_markup);
+  if (isNaN(mu)) return res.status(400).json({ error: 'market_markup is required' });
+  try {
+    await pool.query(
+      'UPDATE diesel_price_settings SET market_markup = $1, updated_at = NOW() WHERE id = 1',
+      [mu]
+    );
+    const { rows } = await pool.query('SELECT * FROM diesel_price_settings WHERE id = 1');
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`\n  Business Scout API  →  http://localhost:${PORT}\n`));

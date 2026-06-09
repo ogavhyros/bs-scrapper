@@ -242,6 +242,26 @@ async function initDB() {
     )
   `);
 
+  // ── APHL Africa — Diesel Prices ──────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS diesel_prices (
+      id          SERIAL PRIMARY KEY,
+      depot_price NUMERIC NOT NULL,
+      source      TEXT DEFAULT 'Manual',
+      notes       TEXT,
+      recorded_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS diesel_price_settings (
+      id                  INTEGER PRIMARY KEY,
+      current_depot_price NUMERIC DEFAULT 0,
+      market_markup       NUMERIC DEFAULT 50,
+      updated_at          TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`INSERT INTO diesel_price_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
   // ── Column migrations — safe to run every startup ─────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);

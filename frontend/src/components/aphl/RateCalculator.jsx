@@ -85,9 +85,11 @@ function RCard({ title, amount, sub, color, bg }) {
 }
 
 export default function RateCalculator({ showToast }) {
-  const [form,    setForm]    = useState(BLANK);
-  const [history, setHistory] = useState([]);
-  const [saving,  setSaving]  = useState(false);
+  const [form,      setForm]      = useState(BLANK);
+  const [history,   setHistory]   = useState([]);
+  const [saving,    setSaving]    = useState(false);
+  const [diesel,    setDiesel]    = useState({ current_depot_price: 0, market_markup: 50 });
+  const [priceMode, setPriceMode] = useState('trip');
 
   const calc  = useMemo(() => compute(form), [form]);
   const show  = calc !== null;
@@ -101,6 +103,22 @@ export default function RateCalculator({ showToast }) {
       .catch(() => {});
 
   useEffect(() => { loadHistory(); }, []);
+
+  useEffect(() => {
+    fetch(`${API}/api/aphl/diesel`, { headers: getAuthHeader() })
+      .then(r => r.json())
+      .then(d => {
+        if (d.settings) setDiesel(d.settings);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const depot = n(diesel.current_depot_price);
+    const mu    = n(diesel.market_markup);
+    if (priceMode === 'trip'  && depot + mu > 0) set('dieselPrice', depot + mu);
+    if (priceMode === 'depot' && depot > 0)      set('dieselPrice', depot);
+  }, [priceMode, diesel]);
 
   useEffect(() => {
     const s = document.createElement('style');
@@ -297,17 +315,65 @@ export default function RateCalculator({ showToast }) {
           {/* B — Fuel Costs */}
           <SCard title="B — Fuel Costs" color="#ef4444">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+              {/* Diesel price info box */}
+              {(n(diesel.current_depot_price) > 0) && (
+                <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 8 }}>⛽ Current Diesel Prices</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Official Depot Price:</span>
+                      <span style={{ fontWeight: 600, color: '#92400e' }}>{fmtCur(diesel.current_depot_price)}/L</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Trip Fuel Cost:</span>
+                      <span style={{ fontWeight: 700, color: '#dc2626' }}>{fmtCur(n(diesel.current_depot_price) + n(diesel.market_markup))}/L</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', borderTop: '1px solid rgba(239,68,68,0.15)', paddingTop: 7 }}>
+                    Depot {fmtCur(diesel.current_depot_price)} + outside markup ₦{n(diesel.market_markup).toLocaleString('en-NG')}/L
+                  </div>
+                </div>
+              )}
+
+              {/* Price mode selector */}
+              <div>
+                <label style={lbl}>Price per Litre *</label>
+                {[
+                  { val: 'trip',   label: `Use Trip Fuel Cost (${fmtCur(n(diesel.current_depot_price) + n(diesel.market_markup))}/L)`, sub: 'Depot price + outside markup — default for trips' },
+                  { val: 'depot',  label: `Use Depot Price (${fmtCur(diesel.current_depot_price)}/L)`,                                   sub: 'Official rate — if fueling at the depot' },
+                  { val: 'custom', label: 'Custom price',                                                                                 sub: 'Enter a different price manually' },
+                ].map(opt => (
+                  <label key={opt.val}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 8, marginBottom: 4, cursor: 'pointer', background: priceMode === opt.val ? 'rgba(239,68,68,0.07)' : 'transparent', border: `1px solid ${priceMode === opt.val ? 'rgba(239,68,68,0.3)' : 'transparent'}`, transition: 'all 0.15s' }}>
+                    <input type="radio" name="priceMode" value={opt.val} checked={priceMode === opt.val}
+                      onChange={() => setPriceMode(opt.val)}
+                      style={{ marginTop: 3, accentColor: '#ef4444', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{opt.label}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{opt.sub}</div>
+                    </div>
+                  </label>
+                ))}
+                {priceMode === 'custom' && (
+                  <input type="number" value={form.dieselPrice} onChange={e => set('dieselPrice', e.target.value)}
+                    placeholder="e.g. 1200" min="0"
+                    style={{ ...inp, marginTop: 6, border: '1.5px solid rgba(239,68,68,0.4)' }} />
+                )}
+                {priceMode !== 'custom' && form.dieselPrice > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, paddingLeft: 2 }}>
+                    Using: <strong style={{ color: '#dc2626' }}>{fmtCur(form.dieselPrice)}/L</strong>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label style={lbl}>Diesel Used for Trip (litres) *</label>
                 <input type="number" value={form.dieselLitres} onChange={e => set('dieselLitres', e.target.value)}
                   placeholder="e.g. 450" min="0" style={inp} />
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Typical PH–Warri trip: 300–450L</div>
               </div>
-              <div>
-                <label style={lbl}>Price per Litre of Diesel ₦ *</label>
-                <input type="number" value={form.dieselPrice} onChange={e => set('dieselPrice', e.target.value)}
-                  placeholder="e.g. 1150" min="0" style={inp} />
-              </div>
+
               <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Total Diesel Cost</span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: '#dc2626' }}>

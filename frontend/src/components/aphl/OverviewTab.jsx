@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { getAuthHeader } from '../../context/AuthContext';
@@ -57,12 +58,17 @@ function SectionHeader({ title, onViewAll }) {
 export default function OverviewTab({ onNavigate }) {
   const [data,    setData]    = useState(null);
   const [loading, setLoading] = useState(true);
+  const [diesel,  setDiesel]  = useState(null);
 
   useEffect(() => {
     fetch(`${API}/api/aphl/overview`, { headers: getAuthHeader() })
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
+    fetch(`${API}/api/aphl/diesel`, { headers: getAuthHeader() })
+      .then(r => r.json())
+      .then(d => setDiesel(d))
+      .catch(() => {});
   }, []);
 
   if (loading) return (
@@ -287,6 +293,59 @@ export default function OverviewTab({ onNavigate }) {
           );
         })}
       </div>
+
+      {/* ── Row 6: Diesel Prices ─────────────────────────────────────────── */}
+      {diesel && (
+        <div style={{ background: cardBg, border, borderRadius: 14, padding: 20 }}>
+          <SectionHeader title="Diesel Prices" onViewAll={() => onNavigate('diesel')} />
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ flex: '1 1 160px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Official Depot Price</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#92400e' }}>
+                {`₦${Number(diesel.settings?.current_depot_price || 0).toLocaleString('en-NG')}`}<span style={{ fontSize: 12 }}>/L</span>
+              </div>
+            </div>
+            <div style={{ flex: '1 1 160px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Trip Fuel Cost</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626' }}>
+                {`₦${(Number(diesel.settings?.current_depot_price || 0) + Number(diesel.settings?.market_markup || 50)).toLocaleString('en-NG')}`}<span style={{ fontSize: 12 }}>/L</span>
+              </div>
+              <div style={{ fontSize: 10, color: '#dc2626', opacity: 0.65, marginTop: 3 }}>Depot + ₦{Number(diesel.settings?.market_markup || 50).toLocaleString('en-NG')} markup</div>
+            </div>
+            {diesel.prices?.[0] && (
+              <div style={{ flex: '1 1 160px', background: 'var(--bg-input)', borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Last Updated</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {new Date(diesel.prices[0].recorded_at).toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </div>
+              </div>
+            )}
+          </div>
+          {(diesel.prices?.length ?? 0) > 1 && (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                Official Depot Diesel Price — Last 14 Days
+              </div>
+              <ResponsiveContainer width="100%" height={140}>
+                <LineChart
+                  data={[...diesel.prices].slice(0, 14).reverse().map(p => ({
+                    date:  new Date(p.recorded_at).toLocaleDateString('en-NG', { day: '2-digit', month: 'short' }),
+                    price: parseFloat(p.depot_price),
+                  }))}
+                  margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                >
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false}
+                    tickFormatter={v => `₦${(v / 1000).toFixed(1)}k`} domain={['auto', 'auto']} />
+                  <Tooltip formatter={v => [`₦${Number(v).toLocaleString('en-NG')}`, 'Depot Price']}
+                    contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                  <Line type="monotone" dataKey="price" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </>
+          )}
+        </div>
+      )}
 
     </div>
   );
