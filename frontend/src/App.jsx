@@ -9,7 +9,8 @@ import BottomNav   from './components/BottomNav';
 import OverviewTab from './components/aphl/OverviewTab';
 import SalesTab    from './components/aphl/SalesTab';
 import ExpenseTab      from './components/aphl/ExpenseTab';
-import RateCalculator from './components/aphl/RateCalculator';
+import RateCalculator    from './components/aphl/RateCalculator';
+import InvoiceGenerator from './components/aphl/InvoiceGenerator';
 // Business Scout
 import ScraperTab  from './components/ScraperTab';
 import ContactsTab from './components/ContactsTab';
@@ -33,7 +34,8 @@ const PAGE_META = {
   overview:  () => ({ title: 'Overview',          sub: 'APHL Africa dashboard — revenue, expenses & performance' }),
   sales:     () => ({ title: 'Sales Logger',       sub: 'Log and track all fuel sales and deliveries' }),
   expenses:   () => ({ title: 'Expense Logger',   sub: 'Track all operational costs and expenses' }),
-  calculator: () => ({ title: 'Rate Calculator', sub: 'Calculate minimum viable haulage rate for any trip' }),
+  calculator: () => ({ title: 'Rate Calculator',   sub: 'Calculate minimum viable haulage rate for any trip' }),
+  invoices:   () => ({ title: 'Invoice Generator', sub: 'Create and manage professional invoices' }),
   scraper:   (s) => ({ title: 'Contact Scraper',   sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · up to 100 per search` }),
   contacts:  (s) => ({ title: 'All Contacts',      sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records` }),
   analytics: (s) => ({ title: 'Analytics',         sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history` }),
@@ -141,7 +143,8 @@ function AppContent() {
             {activeTab === 'overview'  && <OverviewTab  onNavigate={setActiveTab} />}
             {activeTab === 'sales'     && <SalesTab     showToast={showToast} />}
             {activeTab === 'expenses'   && <ExpenseTab     showToast={showToast} />}
-            {activeTab === 'calculator' && <RateCalculator showToast={showToast} />}
+            {activeTab === 'calculator' && <RateCalculator    showToast={showToast} />}
+            {activeTab === 'invoices'   && <InvoiceGenerator showToast={showToast} />}
             {activeTab === 'scraper'   && <ScraperTab   stats={stats} onRefresh={refreshData} />}
             {activeTab === 'contacts'  && (
               <ContactsTab contacts={contacts} onRefresh={refreshData} crmPlaceIds={crmPlaceIds} showToast={showToast} />

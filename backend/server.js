@@ -958,6 +958,248 @@ app.get('/api/linkedin/export', requireAuth, async (_req, res) => {
   }
 });
 
+// ─── INVOICE HTML TEMPLATE ───────────────────────────────────────────────────
+
+function generateInvoiceHTML(invoice, settings) {
+  const s = settings || {};
+  const lineItems = Array.isArray(invoice.line_items) ? invoice.line_items : JSON.parse(invoice.line_items || '[]');
+  const subtotal  = lineItems.reduce((acc, i) => acc + (parseFloat(i.qty) || 0) * (parseFloat(i.rate) || 0), 0);
+  const vatRate   = parseFloat(invoice.vat_rate || 0);
+  const vatAmt    = subtotal * (vatRate / 100);
+  const total     = parseFloat(invoice.total_amount) || subtotal + vatAmt;
+  const fN = (v, d = 2) => `₦${Number(v || 0).toLocaleString('en-NG', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+  const fD = (d) => d ? new Date(String(d).slice(0,10) + 'T12:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  const stColors = { draft: '#6b7280', sent: '#2563eb', paid: '#16a34a', overdue: '#dc2626' };
+  const stColor = stColors[invoice.status] || stColors.draft;
+
+  const logoHtml = s.logo_url
+    ? `<img src="${s.logo_url}" style="max-height:52px;max-width:160px;object-fit:contain;" />`
+    : `<div style="width:42px;height:42px;background:#42D674;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:white;">A</div>`;
+
+  const lineRows = lineItems.map((item, i) => {
+    const amt = (parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0);
+    return `<tr style="background:${i % 2 === 0 ? 'white' : '#f9fafb'}">
+      <td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top">${i + 1}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;white-space:pre-wrap;vertical-align:top">${item.description || ''}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;text-align:right;vertical-align:top">${Number(item.qty || 0).toLocaleString('en-NG')}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;text-align:right;vertical-align:top">${fN(item.rate)}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;text-align:right;font-weight:600;vertical-align:top">${fN(amt)}</td>
+    </tr>`;
+  }).join('');
+
+  const vatRow = vatRate > 0 ? `<tr style="background:#f8f9fa"><td colspan="4" style="padding:7px 12px;text-align:right;font-size:12px;color:#555">VAT (${vatRate}%):</td><td style="padding:7px 12px;text-align:right;background:#f8f9fa">${fN(vatAmt)}</td></tr>` : '';
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;background:white;padding:36px}</style>
+</head><body>
+<table style="width:100%;margin-bottom:22px"><tr>
+<td style="width:55%;vertical-align:top">
+  ${logoHtml}
+  <div style="margin-top:10px;font-weight:900;font-size:15px">${s.company_name || 'APHL AFRICA'}</div>
+  ${s.registered_name ? `<div style="font-size:10px;color:#666;margin-top:2px">${s.registered_name}</div>` : ''}
+  ${s.address_line1 ? `<div style="font-size:11px;color:#555;margin-top:4px">${s.address_line1}</div>` : ''}
+  ${s.address_line2 ? `<div style="font-size:11px;color:#555">${s.address_line2}</div>` : ''}
+  ${(s.city||s.state) ? `<div style="font-size:11px;color:#555">${[s.city,s.state].filter(Boolean).join(', ')}</div>` : ''}
+  ${s.phone ? `<div style="font-size:11px;color:#555;margin-top:3px">Tel: ${s.phone}</div>` : ''}
+  ${s.email ? `<div style="font-size:11px;color:#555">Email: ${s.email}</div>` : ''}
+  ${s.rc_number ? `<div style="font-size:10px;color:#888;margin-top:2px">RC: ${s.rc_number}</div>` : ''}
+  ${s.tin ? `<div style="font-size:10px;color:#888">TIN: ${s.tin}</div>` : ''}
+</td>
+<td style="vertical-align:top;text-align:right">
+  <div style="font-size:28px;font-weight:900;color:#42D674;letter-spacing:-1px">INVOICE</div>
+  <div style="font-size:17px;font-weight:700;margin-top:4px">${invoice.invoice_number}</div>
+  <div style="margin-top:10px;font-size:12px;line-height:1.8">
+    <div><span style="color:#888">Date: </span><strong>${fD(invoice.issue_date)}</strong></div>
+    ${invoice.due_date ? `<div><span style="color:#888">Due: </span><strong>${fD(invoice.due_date)}</strong></div>` : ''}
+    <div><span style="color:#888">Terms: </span><strong>${invoice.payment_terms || '7 days'}</strong></div>
+  </div>
+  <div style="margin-top:8px"><span style="background:#f0f0f0;color:${stColor};padding:2px 10px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase">${(invoice.status || 'DRAFT').toUpperCase()}</span></div>
+</td></tr></table>
+<hr style="border:none;border-top:1px solid #e5e7eb;margin-bottom:18px">
+<div style="background:#f8f9fa;border-left:4px solid #42D674;padding:12px 16px;border-radius:0 8px 8px 0;margin-bottom:20px">
+  <div style="font-size:9px;font-weight:700;color:#42D674;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Bill To</div>
+  <div style="font-size:14px;font-weight:700">${invoice.client_name}</div>
+  ${invoice.client_address ? `<div style="font-size:11px;color:#555;margin-top:3px;white-space:pre-wrap">${invoice.client_address}</div>` : ''}
+  ${invoice.client_phone ? `<div style="font-size:11px;color:#555;margin-top:2px">Tel: ${invoice.client_phone}</div>` : ''}
+  ${invoice.client_email ? `<div style="font-size:11px;color:#555">Email: ${invoice.client_email}</div>` : ''}
+</div>
+<table style="width:100%;border-collapse:collapse">
+<thead><tr style="background:#42D674">
+  <th style="padding:9px 12px;text-align:left;font-size:10px;font-weight:700;color:white;text-transform:uppercase;width:30px">#</th>
+  <th style="padding:9px 12px;text-align:left;font-size:10px;font-weight:700;color:white;text-transform:uppercase">Description</th>
+  <th style="padding:9px 12px;text-align:right;font-size:10px;font-weight:700;color:white;text-transform:uppercase;width:80px">Qty</th>
+  <th style="padding:9px 12px;text-align:right;font-size:10px;font-weight:700;color:white;text-transform:uppercase;width:110px">Rate</th>
+  <th style="padding:9px 12px;text-align:right;font-size:10px;font-weight:700;color:white;text-transform:uppercase;width:110px">Amount</th>
+</tr></thead>
+<tbody>${lineRows}</tbody>
+<tfoot>
+  <tr style="background:#f8f9fa"><td colspan="4" style="padding:9px 12px;text-align:right;font-weight:600;border-top:2px solid #e5e7eb;font-size:12px">Subtotal:</td><td style="padding:9px 12px;text-align:right;font-weight:600;border-top:2px solid #e5e7eb;background:#f8f9fa">${fN(subtotal)}</td></tr>
+  ${vatRow}
+  <tr style="background:#42D674"><td colspan="4" style="padding:11px 12px;text-align:right;font-size:14px;font-weight:900;color:white">TOTAL:</td><td style="padding:11px 12px;text-align:right;font-size:14px;font-weight:900;color:white">${fN(total)}</td></tr>
+</tfoot></table>
+<table style="width:100%;margin-top:22px"><tr>
+<td style="width:55%;vertical-align:top;padding-right:18px">
+  <div style="background:#f8f9fa;border-radius:8px;padding:12px 16px;margin-bottom:10px">
+    <div style="font-size:9px;font-weight:700;color:#42D674;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">Payment Details</div>
+    ${s.bank_name ? `<div style="font-size:12px;margin-bottom:3px"><strong>Bank:</strong> ${s.bank_name}</div>` : ''}
+    ${s.account_name ? `<div style="font-size:12px;margin-bottom:3px"><strong>Account Name:</strong> ${s.account_name}</div>` : ''}
+    ${s.account_number ? `<div style="font-size:12px"><strong>Account Number:</strong> ${s.account_number}</div>` : ''}
+  </div>
+  ${invoice.notes ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px"><div style="font-size:9px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Notes</div><div style="font-size:12px;color:#555;white-space:pre-line">${invoice.notes}</div></div>` : ''}
+</td>
+<td style="width:45%;vertical-align:bottom;text-align:right">
+  <div style="font-size:11px;color:#888">${s.company_name || 'APHL AFRICA'}</div>
+  <div style="margin-top:28px;border-top:1px solid #e5e7eb;padding-top:6px;font-size:10px;color:#bbb">Authorized Signature</div>
+</td></tr></table>
+<div style="margin-top:24px;padding-top:12px;border-top:1px solid #f0f0f0;text-align:center;font-size:10px;color:#bbb">
+  This invoice was generated by Business Scout — APHL Africa
+</div>
+</body></html>`;
+}
+
+// ─── INVOICE SETTINGS ─────────────────────────────────────────────────────────
+
+app.get('/api/aphl/invoice-settings', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM invoice_settings WHERE id = 1');
+    res.json(rows[0] || {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/aphl/invoice-settings', requireAuth, async (req, res) => {
+  const ALLOWED = ['company_name','registered_name','address_line1','address_line2','city','state',
+                   'phone','email','website','rc_number','tin','bank_name','account_name',
+                   'account_number','invoice_prefix','default_payment_terms','default_notes','vat_rate'];
+  const fields = Object.keys(req.body).filter(k => ALLOWED.includes(k));
+  if (fields.length === 0) return res.json({});
+  const set = [...fields.map((f, i) => `${f} = $${i + 1}`), 'updated_at = NOW()'].join(', ');
+  try {
+    await pool.query(`UPDATE invoice_settings SET ${set} WHERE id = $${fields.length + 1}`,
+      [...fields.map(f => req.body[f]), 1]);
+    const { rows } = await pool.query('SELECT * FROM invoice_settings WHERE id = 1');
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/aphl/invoice-settings/logo', requireAuth, async (req, res) => {
+  const { logo_url } = req.body;
+  if (!logo_url) return res.status(400).json({ error: 'logo_url required' });
+  try {
+    await pool.query('UPDATE invoice_settings SET logo_url = $1, updated_at = NOW() WHERE id = 1', [logo_url]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── INVOICES CRUD ────────────────────────────────────────────────────────────
+
+app.get('/api/aphl/invoices', requireAuth, async (_req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM invoices ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/aphl/invoices/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Invoice not found' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/aphl/invoices', requireAuth, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: sr } = await client.query('SELECT * FROM invoice_settings WHERE id = 1');
+    const cfg = sr[0] || {};
+    const num   = String(cfg.next_invoice_number || 1).padStart(3, '0');
+    const year  = new Date().getFullYear();
+    const invoice_number = `${cfg.invoice_prefix || 'APHL'}-${year}-${num}`;
+    await client.query('UPDATE invoice_settings SET next_invoice_number = next_invoice_number + 1 WHERE id = 1');
+
+    const { invoice_type, status, client_name, client_address, client_phone, client_email,
+            issue_date, due_date, payment_terms, line_items, subtotal, vat_amount, vat_rate,
+            total_amount, sale_id, notes } = req.body;
+
+    const { rows } = await client.query(`
+      INSERT INTO invoices
+        (invoice_number,invoice_type,status,client_name,client_address,client_phone,client_email,
+         issue_date,due_date,payment_terms,line_items,subtotal,vat_amount,vat_rate,total_amount,sale_id,notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      [invoice_number, invoice_type, status||'draft', client_name, client_address||null,
+       client_phone||null, client_email||null, issue_date, due_date||null, payment_terms||'7 days',
+       JSON.stringify(line_items||[]), subtotal||0, vat_amount||0, vat_rate||0, total_amount||0,
+       sale_id||null, notes||null]);
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally { client.release(); }
+});
+
+app.put('/api/aphl/invoices/:id', requireAuth, async (req, res) => {
+  const { invoice_type, status, client_name, client_address, client_phone, client_email,
+          issue_date, due_date, payment_terms, line_items, subtotal, vat_amount, vat_rate,
+          total_amount, sale_id, notes } = req.body;
+  try {
+    const { rows } = await pool.query(`
+      UPDATE invoices SET
+        invoice_type=$1,status=$2,client_name=$3,client_address=$4,client_phone=$5,client_email=$6,
+        issue_date=$7,due_date=$8,payment_terms=$9,line_items=$10,subtotal=$11,vat_amount=$12,
+        vat_rate=$13,total_amount=$14,sale_id=$15,notes=$16,updated_at=NOW()
+      WHERE id=$17 RETURNING *`,
+      [invoice_type, status, client_name, client_address||null, client_phone||null, client_email||null,
+       issue_date, due_date||null, payment_terms||'7 days', JSON.stringify(line_items||[]),
+       subtotal||0, vat_amount||0, vat_rate||0, total_amount||0, sale_id||null, notes||null,
+       req.params.id]);
+    res.json(rows[0] ?? {});
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/aphl/invoices/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM invoices WHERE id = $1', [req.params.id]);
+    res.json({ deleted: result.rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/aphl/invoices/:id/pdf', requireAuth, async (req, res) => {
+  try {
+    const { rows: ir } = await pool.query('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
+    const invoice = ir[0];
+    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
+    const { rows: sr } = await pool.query('SELECT * FROM invoice_settings WHERE id = 1');
+    const settings = sr[0] || {};
+    const html = generateInvoiceHTML(invoice, settings);
+
+    let browser;
+    try {
+      const chromium   = require('@sparticuz/chromium');
+      const puppeteer  = require('puppeteer-core');
+      browser = await puppeteer.launch({
+        args:            chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath:  await chromium.executablePath(),
+        headless:        chromium.headless,
+      });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' } });
+      await browser.close();
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoice_number}.pdf"`);
+      return res.send(pdf);
+    } catch (puppeteerErr) {
+      if (browser) await browser.close().catch(() => {});
+      console.error('PDF generation failed (puppeteer):', puppeteerErr.message);
+      // Return HTML so frontend can fallback to window.print()
+      return res.status(422).json({ error: 'PDF engine unavailable', html, invoice_number: invoice.invoice_number });
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─── RATE CALCULATIONS ────────────────────────────────────────────────────────
 
 app.post('/api/aphl/calculations', requireAuth, async (req, res) => {

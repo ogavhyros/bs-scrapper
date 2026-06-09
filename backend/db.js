@@ -187,6 +187,61 @@ async function initDB() {
     )
   `);
 
+  // ── APHL Africa — Invoice Settings ──────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS invoice_settings (
+      id                   SERIAL PRIMARY KEY,
+      company_name         TEXT DEFAULT 'APHL AFRICA',
+      registered_name      TEXT DEFAULT 'AURA PETROLEUM AND HAULAGE LIMITED',
+      address_line1        TEXT DEFAULT '9 BIMKO CRESCENT OFF SANI ABACHA ROAD, GRA PHASE 3',
+      address_line2        TEXT DEFAULT '',
+      city                 TEXT DEFAULT 'PORT HARCOURT',
+      state                TEXT DEFAULT 'RIVERS STATE',
+      phone                TEXT DEFAULT '+2348126172736',
+      email                TEXT DEFAULT '',
+      website              TEXT DEFAULT '',
+      rc_number            TEXT DEFAULT '9437975',
+      tin                  TEXT DEFAULT '',
+      bank_name            TEXT DEFAULT 'MONIEPOINT',
+      account_name         TEXT DEFAULT 'AURA HAULAGE',
+      account_number       TEXT DEFAULT '8161783136',
+      invoice_prefix       TEXT DEFAULT 'APHL',
+      next_invoice_number  INTEGER DEFAULT 1,
+      default_payment_terms TEXT DEFAULT '7 days',
+      default_notes        TEXT DEFAULT 'Thank you for your business.',
+      logo_url             TEXT DEFAULT '',
+      vat_rate             NUMERIC DEFAULT 0,
+      updated_at           TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`INSERT INTO invoice_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+
+  // ── APHL Africa — Invoices ────────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS invoices (
+      id             SERIAL PRIMARY KEY,
+      invoice_number TEXT UNIQUE NOT NULL,
+      invoice_type   TEXT NOT NULL,
+      status         TEXT DEFAULT 'draft',
+      client_name    TEXT NOT NULL,
+      client_address TEXT,
+      client_phone   TEXT,
+      client_email   TEXT,
+      issue_date     DATE DEFAULT CURRENT_DATE,
+      due_date       DATE,
+      payment_terms  TEXT DEFAULT '7 days',
+      line_items     JSONB DEFAULT '[]',
+      subtotal       NUMERIC DEFAULT 0,
+      vat_amount     NUMERIC DEFAULT 0,
+      vat_rate       NUMERIC DEFAULT 0,
+      total_amount   NUMERIC DEFAULT 0,
+      sale_id        INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+      notes          TEXT,
+      created_at     TIMESTAMP DEFAULT NOW(),
+      updated_at     TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   // ── Column migrations — safe to run every startup ─────────────────────────
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);
