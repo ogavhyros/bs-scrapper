@@ -796,7 +796,7 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   console.log('Apollo key preview:', apolloKey?.substring(0, 8));
 
   if (!apolloKey) {
-    return res.status(400).json({ error: 'APOLLO_API_KEY not set in environment variables. Add it to Render.' });
+    return res.status(400).json({ error: 'APOLLO_API_KEY not configured on server.' });
   }
 
   const { job_title, location } = req.body;
@@ -807,10 +807,15 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
 
+  console.log('Attempting Apollo search...');
+  console.log('Key starts with:', apolloKey.substring(0, 8));
+
+  let searchRes;
   try {
-    const searchRes = await axios.post(
+    searchRes = await axios.post(
       'https://api.apollo.io/api/v1/mixed_people/search',
       {
+        api_key:          apolloKey,
         person_titles:    [job_title.trim()],
         person_locations: [location.trim()],
         page:             1,
@@ -825,6 +830,17 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
         timeout: 30000,
       }
     );
+  } catch (apolloErr) {
+    console.error('Apollo error:', apolloErr.response?.data);
+    return res.status(500).json({
+      error: apolloErr.response?.data?.message || apolloErr.message || 'Apollo API call failed',
+    });
+  }
+
+  console.log('Apollo response status:', searchRes.status);
+  console.log('Apollo people count:', searchRes.data?.people?.length);
+
+  try {
 
     const people = searchRes.data?.people || [];
 
@@ -1178,39 +1194,9 @@ app.delete('/api/aphl/invoices/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get('/api/aphl/invoices/:id/pdf', requireAuth, async (req, res) => {
-  try {
-    const { rows: ir } = await pool.query('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
-    const invoice = ir[0];
-    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-    const { rows: sr } = await pool.query('SELECT * FROM invoice_settings WHERE id = 1');
-    const settings = sr[0] || {};
-    const html = generateInvoiceHTML(invoice, settings);
-
-    let browser;
-    try {
-      const chromium   = require('@sparticuz/chromium');
-      const puppeteer  = require('puppeteer-core');
-      browser = await puppeteer.launch({
-        args:            chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath:  await chromium.executablePath(),
-        headless:        chromium.headless,
-      });
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'networkidle0' });
-      const pdf = await page.pdf({ format: 'A4', printBackground: true, margin: { top: '15mm', right: '15mm', bottom: '15mm', left: '15mm' } });
-      await browser.close();
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="${invoice.invoice_number}.pdf"`);
-      return res.send(pdf);
-    } catch (puppeteerErr) {
-      if (browser) await browser.close().catch(() => {});
-      console.error('PDF generation failed (puppeteer):', puppeteerErr.message);
-      // Return HTML so frontend can fallback to window.print()
-      return res.status(422).json({ error: 'PDF engine unavailable', html, invoice_number: invoice.invoice_number });
-    }
-  } catch (err) { res.status(500).json({ error: err.message }); }
+// PDF generation is handled client-side via jsPDF — this endpoint is no longer used
+app.get('/api/aphl/invoices/:id/pdf', requireAuth, (_req, res) => {
+  res.status(422).json({ error: 'PDF engine unavailable — use client-side PDF generation' });
 });
 
 // ─── RATE CALCULATIONS ────────────────────────────────────────────────────────

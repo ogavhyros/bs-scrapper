@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, X, Pencil, Trash2, Eye, Download, CheckCircle, Printer, Save, FileText } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { getAuthHeader } from '../../context/AuthContext';
 
 const API = import.meta.env.VITE_API_URL ?? '';
@@ -171,7 +173,9 @@ export default function InvoiceGenerator({ showToast }) {
   const [previewOpen,  setPreviewOpen]  = useState(false);
   const [previewData,  setPreviewData]  = useState(null);
   const [pdfLoading,   setPdfLoading]   = useState(null);
-  const logoRef = useRef();
+  const [pdfQueue,     setPdfQueue]     = useState(null);
+  const logoRef    = useRef();
+  const pdfHiddenRef = useRef();
 
   // computed totals
   const subtotal = useMemo(() => lineItems.reduce((s, i) => s + num(i.qty) * num(i.rate), 0), [lineItems]);
@@ -334,27 +338,47 @@ export default function InvoiceGenerator({ showToast }) {
     }
   };
 
+  // Trigger PDF generation after hidden container renders
+  useEffect(() => {
+    if (!pdfQueue) return;
+    const el = pdfHiddenRef.current;
+    if (!el) return;
+    const timer = setTimeout(async () => {
+      try {
+        const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth  = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+        pdf.save(`${pdfQueue.invNumber || 'invoice'}.pdf`);
+        showToast('PDF downloaded', 'success');
+      } catch {
+        showToast('PDF generation failed — use Print from preview', 'warning');
+      } finally {
+        setPdfQueue(null);
+        setPdfLoading(null);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [pdfQueue]);
+
   const handleDownloadPDF = async (id, invNumber, items) => {
     setPdfLoading(id);
     try {
-      const r = await fetch(`${API}/api/aphl/invoices/${id}/pdf`, { headers: getAuthHeader() });
-      if (r.ok && r.headers.get('content-type')?.includes('application/pdf')) {
-        const blob = await r.blob();
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href = url; a.download = `${invNumber || 'invoice'}.pdf`; a.click();
-        URL.revokeObjectURL(url);
+      let invoice;
+      if (previewData?.invoice?.id === id) {
+        invoice = previewData.invoice;
       } else {
-        // Fallback: show preview modal and let user print
-        const inv = invNumber
-          ? (await (await fetch(`${API}/api/aphl/invoices/${id}`, { headers: getAuthHeader() })).json())
-          : null;
-        if (inv) { setPreviewData({ invoice: inv, items }); setPreviewOpen(true); }
-        showToast('PDF engine unavailable — use Print from preview', 'warning');
+        const r = await fetch(`${API}/api/aphl/invoices/${id}`, { headers: getAuthHeader() });
+        invoice = await r.json();
       }
+      const resolvedItems = items || (Array.isArray(invoice.line_items)
+        ? invoice.line_items
+        : JSON.parse(invoice.line_items || '[]'));
+      setPdfQueue({ invoice, items: resolvedItems, invNumber });
     } catch {
-      showToast('PDF download failed — use Print from preview', 'warning');
-    } finally {
+      showToast('Failed to load invoice for PDF', 'error');
       setPdfLoading(null);
     }
   };
@@ -445,6 +469,13 @@ export default function InvoiceGenerator({ showToast }) {
       <div id="inv-print-root">
         {previewData && <InvoiceTemplate invoice={previewData.invoice} settings={settings} items={previewData.items} />}
       </div>
+
+      {/* Hidden container for jsPDF rendering */}
+      {pdfQueue && (
+        <div ref={pdfHiddenRef} style={{ position: 'fixed', left: '-9999px', top: 0, width: 794, background: 'white', zIndex: -1, pointerEvents: 'none' }}>
+          <InvoiceTemplate invoice={pdfQueue.invoice} settings={settings} items={pdfQueue.items} />
+        </div>
+      )}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 6, borderBottom: '2px solid var(--border)', paddingBottom: 0, flexWrap: 'wrap' }}>
