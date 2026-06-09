@@ -789,11 +789,18 @@ app.get('/api/linkedin/config', requireAuth, (_req, res) => {
 
 // POST /api/linkedin/scrape — Apollo.io People Search
 app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
-  const apiKey = apolloApiKey();
-  if (!apiKey) return res.status(400).json({ error: 'APOLLO_API_KEY is not set on the server.' });
+  const apolloKey = process.env.APOLLO_API_KEY;
+
+  console.log('Apollo key exists:', !!apolloKey);
+  console.log('Apollo key length:', apolloKey?.length);
+  console.log('Apollo key preview:', apolloKey?.substring(0, 8));
+
+  if (!apolloKey) {
+    return res.status(400).json({ error: 'APOLLO_API_KEY not set in environment variables. Add it to Render.' });
+  }
 
   const { job_title, location } = req.body;
-  const limit = Math.min(Math.max(parseInt(req.body.limit, 10) || 25, 1), 100);
+  const limit = Math.min(Math.max(parseInt(req.body.limit, 10) || 25, 1), 25);
 
   if (!job_title?.trim()) return res.status(400).json({ error: 'Job title is required.' });
   if (!location?.trim())  return res.status(400).json({ error: 'Location is required.' });
@@ -802,15 +809,21 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   try {
     const searchRes = await axios.post(
-      'https://api.apollo.io/v1/mixed_people/search',
+      'https://api.apollo.io/api/v1/mixed_people/search',
       {
-        api_key:          apiKey,
-        q_person_title:   job_title.trim(),
+        person_titles:    [job_title.trim()],
         person_locations: [location.trim()],
-        per_page:         limit,
         page:             1,
+        per_page:         limit,
       },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 30000 }
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'X-Api-Key':     apolloKey,
+        },
+        timeout: 30000,
+      }
     );
 
     const people = searchRes.data?.people || [];
