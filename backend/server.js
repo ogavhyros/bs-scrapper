@@ -835,10 +835,60 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   console.log('Apollo people count:', response.data?.people?.length);
   console.log('Apollo total entries:', response.data?.total_entries);
 
-  const people = response.data?.people || [];
+  let people = response.data?.people || [];
 
   if (!people.length) {
     return res.json({ success: true, added: 0, skipped: 0, total_found: 0, message: 'No profiles found for this search' });
+  }
+
+  // ── STEP 2: Enrich profiles for email + phone ─────────────────────────────
+  const peopleIds = people.filter(p => p.id).map(p => p.id).slice(0, 10);
+  if (peopleIds.length > 0) {
+    try {
+      console.log('Enriching', peopleIds.length, 'profiles...');
+      const enrichResponse = await axios.post(
+        'https://api.apollo.io/api/v1/people/bulk_match',
+        {
+          details:                 peopleIds.map(id => ({ id })),
+          reveal_personal_emails:  true,
+          reveal_phone_number:     true,
+        },
+        {
+          headers: {
+            'accept':        'application/json',
+            'Content-Type':  'application/json',
+            'Cache-Control': 'no-cache',
+            'x-api-key':     apolloKey,
+          },
+          timeout: 30000,
+        }
+      );
+      console.log('Enrichment status:', enrichResponse.status);
+      console.log('Enriched count:', enrichResponse.data?.matches?.length);
+
+      const enrichedMap = {};
+      (enrichResponse.data?.matches || []).forEach(m => { if (m.id) enrichedMap[m.id] = m; });
+
+      people = people.map(p => {
+        const e = enrichedMap[p.id];
+        if (!e) return p;
+        return {
+          ...p,
+          email:        e.email || e.personal_emails?.[0] || p.email || '',
+          phone:        e.phone_numbers?.[0]?.raw_number || e.mobile_phone || p.phone || '',
+          linkedin_url: e.linkedin_url  || p.linkedin_url,
+          photo_url:    e.photo_url     || p.photo_url,
+          title:        e.title         || p.title,
+          organization: e.organization  || p.organization,
+        };
+      });
+
+      console.log('Profiles with email:', people.filter(p => p.email).length);
+      console.log('Profiles with phone:', people.filter(p => p.phone).length);
+    } catch (enrichErr) {
+      console.error('Enrichment error:', enrichErr.response?.status, enrichErr.response?.data?.error);
+      console.log('Continuing with unenriched data...');
+    }
   }
 
   try {
@@ -849,7 +899,7 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     try {
       await client.query('BEGIN');
       for (const p of people) {
-        const fullName   = p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+        const fullName = p.name || `${p.first_name || ''} ${p.last_name || p.last_name_obfuscated || ''}`.trim();
         if (!fullName) { skipped++; continue; }
 
         const profileUrl = p.linkedin_url
@@ -860,13 +910,13 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
           profile_url:       profileUrl,
           full_name:         fullName || null,
           first_name:        p.first_name || null,
-          last_name:         p.last_name  || null,
+          last_name:         p.last_name  || p.last_name_obfuscated || null,
           headline:          p.headline   || p.title || null,
           current_company:   p.organization?.name || p.employment_history?.[0]?.organization_name || null,
           current_title:     p.title      || null,
           location:          p.city ? `${p.city}${p.country ? ', ' + p.country : ''}` : (location || null),
-          email:             p.email      || null,
-          phone:             p.phone_numbers?.[0]?.raw_number || p.phone_numbers?.[0]?.sanitized_number || null,
+          email:             p.email || p.personal_emails?.[0] || null,
+          phone:             p.phone || p.phone_numbers?.[0]?.raw_number || p.mobile_phone || null,
           linkedin_url:      p.linkedin_url || null,
           profile_picture:   p.photo_url  || null,
           connections:       null,
