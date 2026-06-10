@@ -1044,6 +1044,21 @@ app.patch('/api/linkedin/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// DELETE /api/linkedin/bulk-delete — delete multiple contacts by primary key id
+app.delete('/api/linkedin/bulk-delete', requireAuth, async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.json({ deleted: 0 });
+  const validIds = ids.map(Number).filter(n => Number.isFinite(n) && n > 0);
+  if (!validIds.length) return res.json({ deleted: 0 });
+  try {
+    const result = await pool.query(
+      'DELETE FROM linkedin_contacts WHERE id = ANY($1::int[])',
+      [validIds]
+    );
+    res.json({ deleted: result.rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // DELETE /api/linkedin/:id
 app.delete('/api/linkedin/:id', requireAuth, async (req, res) => {
   try {

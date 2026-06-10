@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Search, Mail, Phone, MapPin, Users,
   Trash2, Download, Loader2, ExternalLink, Briefcase, Info,
+  CheckSquare, Square, X,
 } from 'lucide-react';
 import LinkedInIcon from './LinkedInIcon';
 import { getAuthHeader } from '../context/AuthContext';
@@ -45,15 +46,30 @@ function StatusBanner({ status }) {
 
 // ── Profile card ──────────────────────────────────────────────────────────────
 
-function ProfileCard({ c, savedId, onStatus, onDelete }) {
+function ProfileCard({ c, savedId, onStatus, onDelete, selected, onToggle }) {
   const cfg = STATUS_COLORS[c.crm_status] ?? STATUS_COLORS['Not Contacted'];
 
   return (
-    <div className="card p-4 lg:p-5 hover:shadow-card-lg transition-shadow duration-150">
+    <div
+      className="card p-4 lg:p-5 hover:shadow-card-lg transition-shadow duration-150"
+      style={selected ? { outline: '2px solid #42D674', outlineOffset: '-2px' } : {}}
+    >
       <div className="flex flex-col lg:flex-row gap-4">
 
-        {/* ── Left: avatar + identity ──────────────────────────────────── */}
+        {/* ── Left: checkbox + avatar + identity ───────────────────────── */}
         <div className="flex gap-3.5 flex-1 min-w-0">
+
+          {/* Checkbox */}
+          <button
+            onClick={() => onToggle(c.id)}
+            className="flex-shrink-0 mt-0.5 text-ink-muted hover:text-brand transition-colors"
+            title={selected ? 'Deselect' : 'Select'}
+          >
+            {selected
+              ? <CheckSquare size={18} className="text-brand" />
+              : <Square size={18} />}
+          </button>
+
           {c.profile_picture ? (
             <img src={c.profile_picture} alt={c.full_name}
               className="w-12 h-12 rounded-full object-cover flex-shrink-0"
@@ -70,6 +86,7 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
               <h3 className="text-[16px] font-bold text-ink leading-tight">{c.full_name || '—'}</h3>
               {c.linkedin_url && (
                 <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
                   className="flex items-center gap-0.5 text-[11px] font-medium hover:underline"
                   style={{ color: BLUE }}>
                   <LinkedInIcon size={11} /> Profile <ExternalLink size={9} />
@@ -101,14 +118,16 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
             {/* Email + phone */}
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[13px]">
               {c.email ? (
-                <a href={`mailto:${c.email}`} className="flex items-center gap-1 hover:underline" style={{ color: BLUE }}>
+                <a href={`mailto:${c.email}`} onClick={e => e.stopPropagation()}
+                  className="flex items-center gap-1 hover:underline" style={{ color: BLUE }}>
                   <Mail size={12} />{c.email}
                 </a>
               ) : (
                 <span className="flex items-center gap-1 text-ink-ghost italic text-xs"><Mail size={12} />No email</span>
               )}
               {c.phone ? (
-                <a href={`tel:${c.phone}`} className="flex items-center gap-1 text-brand hover:underline">
+                <a href={`tel:${c.phone}`} onClick={e => e.stopPropagation()}
+                  className="flex items-center gap-1 text-brand hover:underline">
                   <Phone size={12} />{c.phone}
                 </a>
               ) : (
@@ -125,6 +144,7 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
               <select
                 value={c.crm_status || 'Not Contacted'}
                 onChange={e => onStatus(c.id, e.target.value)}
+                onClick={e => e.stopPropagation()}
                 className="w-full bg-surface border rounded-nav px-2.5 py-1.5 text-[13px] font-medium
                            focus:outline-none focus:ring-1 cursor-pointer appearance-none"
                 style={{ backgroundColor: cfg.bg, color: cfg.text, borderColor: cfg.border }}
@@ -138,7 +158,7 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
           </div>
 
           <button
-            onClick={() => onDelete(c.id)}
+            onClick={e => { e.stopPropagation(); onDelete(c.id); }}
             className="flex items-center gap-1 text-[12px] text-red-400 hover:text-red-600
                        hover:bg-red-50 px-2.5 py-1.5 rounded-nav transition-colors flex-shrink-0"
             title="Delete"
@@ -159,13 +179,14 @@ function ProfileCard({ c, savedId, onStatus, onDelete }) {
 // ── LinkedInTab ───────────────────────────────────────────────────────────────
 
 export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) {
-  const [jobTitle,  setJobTitle]  = useState('');
-  const [location,  setLocation]  = useState('');
-  const [limit,     setLimit]     = useState(25);
-  const [loading,   setLoading]   = useState(false);
-  const [status,    setStatus]    = useState(null);
-  const [hasKey,    setHasKey]    = useState(true);
-  const [savedId,   setSavedId]   = useState(null);
+  const [jobTitle,    setJobTitle]    = useState('');
+  const [location,    setLocation]    = useState('');
+  const [limit,       setLimit]       = useState(25);
+  const [loading,     setLoading]     = useState(false);
+  const [status,      setStatus]      = useState(null);
+  const [hasKey,      setHasKey]      = useState(true);
+  const [savedId,     setSavedId]     = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   useEffect(() => {
     fetch(`${API}/api/linkedin/config`, { headers: getAuthHeader() })
@@ -174,12 +195,80 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
       .catch(() => {});
   }, []);
 
+  // Clear selection whenever the contacts list refreshes
+  useEffect(() => { setSelectedIds(new Set()); }, [linkedinContacts]);
+
   const stats = useMemo(() => ({
     total:     linkedinContacts.length,
     withEmail: linkedinContacts.filter(c => c.email).length,
     withPhone: linkedinContacts.filter(c => c.phone).length,
     runs:      new Set(linkedinContacts.map(c => `${c.keyword_searched}|${c.location_searched}|${c.scraped_date}`)).size,
   }), [linkedinContacts]);
+
+  // Smart-select buckets (live counts)
+  const incompleteIds = useMemo(() =>
+    linkedinContacts.filter(c => !c.email || !c.phone).map(c => c.id),
+    [linkedinContacts]);
+  const noEmailIds = useMemo(() =>
+    linkedinContacts.filter(c => !c.email).map(c => c.id),
+    [linkedinContacts]);
+  const noPhoneIds = useMemo(() =>
+    linkedinContacts.filter(c => !c.phone).map(c => c.id),
+    [linkedinContacts]);
+  const noNameIds = useMemo(() =>
+    linkedinContacts.filter(c => !c.full_name).map(c => c.id),
+    [linkedinContacts]);
+
+  // ── Selection handlers ─────────────────────────────────────────────────────
+
+  const handleToggle = useCallback((id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll        = () => setSelectedIds(new Set(linkedinContacts.map(c => c.id)));
+  const handleDeselectAll      = () => setSelectedIds(new Set());
+  const handleSelectIncomplete = () => setSelectedIds(new Set(incompleteIds));
+  const handleSelectNoEmail    = () => setSelectedIds(new Set(noEmailIds));
+  const handleSelectNoPhone    = () => setSelectedIds(new Set(noPhoneIds));
+  const handleSelectNoFullName = () => setSelectedIds(new Set(noNameIds));
+
+  const handleDeleteSelected = async () => {
+    if (!selectedIds.size) return;
+    const ids = [...selectedIds];
+    try {
+      const res = await fetch(`${API}/api/linkedin/bulk-delete`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      showToast?.(`${ids.length} contact${ids.length !== 1 ? 's' : ''} deleted`, 'info');
+      setSelectedIds(new Set());
+      onRefresh();
+    } catch (err) { showToast?.(err.message || 'Bulk delete failed', 'error'); }
+  };
+
+  const handleDeleteIncomplete = async () => {
+    const ids = incompleteIds;
+    if (!ids.length) return;
+    try {
+      const res = await fetch(`${API}/api/linkedin/bulk-delete`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed');
+      showToast?.(`${ids.length} incomplete contact${ids.length !== 1 ? 's' : ''} deleted`, 'info');
+      setSelectedIds(new Set());
+      onRefresh();
+    } catch (err) { showToast?.(err.message || 'Delete failed', 'error'); }
+  };
+
+  // ── Other handlers ─────────────────────────────────────────────────────────
 
   const handleSearch = async () => {
     if (!jobTitle.trim()) {
@@ -258,6 +347,13 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
     { label: 'With Phone',     value: stats.withPhone, color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
     { label: 'Scrape Runs',    value: stats.runs,      color: '#374151', bg: '#f3f4f6', border: '#e5e7eb' },
   ];
+
+  const smartBtn = {
+    padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+    background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+    color: '#f59e0b', cursor: 'pointer', whiteSpace: 'nowrap',
+  };
+  const smartBtnOff = { ...smartBtn, opacity: 0.4, cursor: 'default' };
 
   return (
     <div className="space-y-5">
@@ -347,13 +443,112 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
 
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       {linkedinContacts.length > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-[13px] text-ink-soft font-medium">
-            {linkedinContacts.length} LinkedIn contact{linkedinContacts.length !== 1 ? 's' : ''}
-          </p>
-          <button onClick={handleExport} className="btn-primary py-2 px-4 text-xs">
-            <Download size={14} />
-            <span className="hidden lg:inline">Export Excel</span>
+        <div className="space-y-3">
+
+          {/* Count + export */}
+          <div className="flex items-center justify-between">
+            <p className="text-[13px] text-ink-soft font-medium">
+              {linkedinContacts.length} LinkedIn contact{linkedinContacts.length !== 1 ? 's' : ''}
+            </p>
+            <button onClick={handleExport} className="btn-primary py-2 px-4 text-xs">
+              <Download size={14} />
+              <span className="hidden lg:inline">Export Excel</span>
+            </button>
+          </div>
+
+          {/* Smart select row */}
+          <div className="rounded-card p-3 border flex flex-wrap gap-2 items-center"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+            <span className="text-[11px] font-semibold text-ink-muted uppercase tracking-wider">
+              Select:
+            </span>
+
+            <button onClick={handleSelectAll} style={smartBtn}>
+              All ({linkedinContacts.length})
+            </button>
+
+            {selectedIds.size > 0 && (
+              <button onClick={handleDeselectAll} style={{
+                ...smartBtn,
+                background: 'rgba(107,114,128,0.1)', border: '1px solid rgba(107,114,128,0.3)', color: '#6b7280',
+              }}>
+                Deselect All
+              </button>
+            )}
+
+            <button onClick={handleSelectIncomplete}
+              style={incompleteIds.length ? smartBtn : smartBtnOff}
+              disabled={!incompleteIds.length}>
+              Incomplete ({incompleteIds.length})
+            </button>
+
+            <button onClick={handleSelectNoEmail}
+              style={noEmailIds.length ? smartBtn : smartBtnOff}
+              disabled={!noEmailIds.length}>
+              No Email ({noEmailIds.length})
+            </button>
+
+            <button onClick={handleSelectNoPhone}
+              style={noPhoneIds.length ? smartBtn : smartBtnOff}
+              disabled={!noPhoneIds.length}>
+              No Phone ({noPhoneIds.length})
+            </button>
+
+            <button onClick={handleSelectNoFullName}
+              style={noNameIds.length ? smartBtn : smartBtnOff}
+              disabled={!noNameIds.length}>
+              No Name ({noNameIds.length})
+            </button>
+
+            {/* Spacer + danger action */}
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={handleDeleteIncomplete}
+              disabled={!incompleteIds.length}
+              style={{
+                padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
+                background: incompleteIds.length ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.04)',
+                border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444',
+                cursor: incompleteIds.length ? 'pointer' : 'default',
+                opacity: incompleteIds.length ? 1 : 0.4,
+              }}
+              title="Delete all contacts missing email or phone"
+            >
+              <Trash2 size={12} />
+              Delete All Incomplete ({incompleteIds.length})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Sticky action bar (visible while contacts are selected) ──────── */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-10 rounded-card p-3 border flex items-center gap-3 flex-wrap"
+          style={{
+            background: 'rgba(66,214,116,0.08)',
+            borderColor: 'rgba(66,214,116,0.25)',
+          }}>
+          <CheckSquare size={16} className="text-brand flex-shrink-0" />
+          <span className="text-[13px] font-semibold text-brand flex-1">
+            {selectedIds.size} contact{selectedIds.size !== 1 ? 's' : ''} selected
+          </span>
+
+          <button
+            onClick={handleDeleteSelected}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-nav text-xs font-semibold text-white"
+            style={{ background: '#ef4444' }}
+          >
+            <Trash2 size={13} />
+            Delete Selected
+          </button>
+
+          <button
+            onClick={handleDeselectAll}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-nav text-xs font-medium text-ink-soft hover:bg-line transition-colors"
+          >
+            <X size={13} />
+            Clear
           </button>
         </div>
       )}
@@ -368,7 +563,11 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
       ) : (
         <div className="space-y-3">
           {linkedinContacts.map(c => (
-            <ProfileCard key={c.id} c={c} savedId={savedId} onStatus={handleStatus} onDelete={handleDelete} />
+            <ProfileCard
+              key={c.id} c={c} savedId={savedId}
+              onStatus={handleStatus} onDelete={handleDelete}
+              selected={selectedIds.has(c.id)} onToggle={handleToggle}
+            />
           ))}
         </div>
       )}
