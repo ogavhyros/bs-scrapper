@@ -42,7 +42,7 @@ const PAGE_META = {
   contacts:  (s) => ({ title: 'All Contacts',      sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records` }),
   analytics: (s) => ({ title: 'Analytics',         sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history` }),
   crm:       (s) => ({ title: 'CRM Tracker',       sub: `${s.crmTotal} lead${s.crmTotal !== 1 ? 's' : ''} · call tracking & follow-ups` }),
-  linkedin:  (s) => ({ title: 'LinkedIn Scraper',  sub: `${s.linkedinTotal} profile${s.linkedinTotal !== 1 ? 's' : ''} · NinjaPear employee search` }),
+  linkedin:  (s) => ({ title: 'LinkedIn Scraper',  sub: `${s.linkedinTotal} profile${s.linkedinTotal !== 1 ? 's' : ''}` }),
 };
 
 // ── Loading spinner ───────────────────────────────────────────────────────────

@@ -365,17 +365,12 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
           <Info size={18} className="flex-shrink-0 mt-0.5" style={{ color: BLUE }} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold" style={{ color: '#1e40af' }}>
-              LinkedIn search requires an Apollo.io API key.
+              LinkedIn search requires an API key to be configured.
             </p>
             <p className="text-[13px] text-ink-soft mt-0.5">
-              Add <code className="bg-blue-100 px-1 rounded text-xs">APOLLO_API_KEY</code> to your Render environment variables.
+              Contact your administrator to enable LinkedIn profile search.
             </p>
           </div>
-          <a href="https://app.apollo.io/#/settings/integrations/api" target="_blank" rel="noopener noreferrer"
-            className="px-3 py-1.5 rounded-nav text-xs font-semibold text-white flex-shrink-0"
-            style={{ backgroundColor: BLUE }}>
-            Get API Key
-          </a>
         </div>
       )}
 
@@ -383,7 +378,7 @@ export default function LinkedInTab({ linkedinContacts, onRefresh, showToast }) 
       <div className="card p-5 lg:p-6">
         <div className="flex items-center gap-2 mb-5">
           <LinkedInIcon size={18} style={{ color: BLUE }} />
-          <p className="label-xs">Search LinkedIn Profiles via Apollo.io</p>
+          <p className="label-xs">Search LinkedIn Profiles</p>
         </div>
 
         <div className="space-y-4">
