@@ -792,7 +792,6 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   const apolloKey = process.env.APOLLO_API_KEY;
 
   console.log('Apollo key length:', apolloKey?.length);
-  console.log('Apollo key full:', apolloKey);
 
   if (!apolloKey) {
     return res.status(400).json({ error: 'APOLLO_API_KEY not configured.' });
@@ -806,35 +805,39 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const params = new URLSearchParams();
-  params.append('person_titles[]',    job_title.trim());
-  params.append('person_locations[]', location.trim());
-  params.append('per_page',           String(limit));
-  params.append('page',               '1');
+  const url         = 'https://api.apollo.io/api/v1/mixed_people/api_search';
+  const queryParams = {
+    'person_titles[]':    job_title.trim(),
+    'person_locations[]': location.trim(),
+    per_page:             limit,
+    page:                 1,
+  };
+
+  console.log('Calling URL:', url);
+  console.log('With params:', JSON.stringify(queryParams));
 
   let response;
   try {
-    response = await axios.get(
-      `https://api.apollo.io/api/v1/mixed_people/api_search?${params.toString()}`,
-      {
-        headers: {
-          'accept':        'application/json',
-          'Cache-Control': 'no-cache',
-          'X-Api-Key':     apolloKey,
-        },
-        timeout: 30000,
-      }
-    );
-  } catch (apolloErr) {
-    console.error('Apollo error:', apolloErr.response?.data);
-    console.error('Apollo error details:', JSON.stringify(apolloErr.response?.data, null, 2));
+    response = await axios.get(url, {
+      params:  queryParams,
+      headers: {
+        'accept':        'application/json',
+        'Cache-Control': 'no-cache',
+        'X-Api-Key':     apolloKey,
+      },
+      timeout: 30000,
+    });
+  } catch (err) {
+    console.error('Apollo error status:', err.response?.status);
+    console.error('Apollo error URL:',    err.config?.url);
+    console.error('Apollo error data:',   JSON.stringify(err.response?.data));
     return res.status(500).json({
-      error: apolloErr.response?.data?.message || apolloErr.message || 'Apollo API call failed',
+      error: err.response?.data?.error || err.response?.data?.message || err.message,
     });
   }
 
-  console.log('Apollo status:', response.status);
-  console.log('Apollo people:', response.data?.people?.length);
+  console.log('Apollo success! Status:', response.status);
+  console.log('People found:', response.data?.people?.length);
 
   const people = response.data?.people || [];
 
