@@ -843,9 +843,18 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   // ── STEP 2: Enrich profiles for email + phone ─────────────────────────────
   const peopleIds = people.filter(p => p.id).map(p => p.id).slice(0, 10);
+  console.log('People array length before enrich:', people.length);
+  console.log('People IDs extracted:', peopleIds.length);
   if (peopleIds.length > 0) {
     try {
-      console.log('Enriching', peopleIds.length, 'profiles...');
+      console.log('=== ENRICHMENT DEBUG ===');
+      console.log('Sending', peopleIds.length, 'IDs to bulk_match');
+      console.log('First ID sample:', peopleIds[0]);
+      console.log('Enrichment request body:', JSON.stringify({
+        details:                peopleIds.slice(0, 2).map(id => ({ id })),
+        reveal_personal_emails: true,
+        reveal_phone_number:    true,
+      }));
       const enrichResponse = await axios.post(
         'https://api.apollo.io/api/v1/people/bulk_match',
         {
@@ -863,8 +872,10 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
           timeout: 30000,
         }
       );
-      console.log('Enrichment status:', enrichResponse.status);
-      console.log('Enriched count:', enrichResponse.data?.matches?.length);
+      console.log('Enrichment response status:', enrichResponse.status);
+      console.log('Enrichment response keys:', Object.keys(enrichResponse.data || {}));
+      console.log('Matches count:', enrichResponse.data?.matches?.length);
+      console.log('First match sample:', JSON.stringify(enrichResponse.data?.matches?.[0], null, 2));
 
       const enrichedMap = {};
       (enrichResponse.data?.matches || []).forEach(m => { if (m.id) enrichedMap[m.id] = m; });
