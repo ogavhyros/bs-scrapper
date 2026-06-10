@@ -874,17 +874,26 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
         if (!e) return p;
         return {
           ...p,
-          email:        e.email || e.personal_emails?.[0] || p.email || '',
-          phone:        e.phone_numbers?.[0]?.raw_number || e.mobile_phone || p.phone || '',
-          linkedin_url: e.linkedin_url  || p.linkedin_url,
-          photo_url:    e.photo_url     || p.photo_url,
-          title:        e.title         || p.title,
-          organization: e.organization  || p.organization,
+          full_name:       e.name || `${e.first_name || ''} ${e.last_name || ''}`.trim() || p.full_name,
+          first_name:      e.first_name      || p.first_name,
+          last_name:       e.last_name       || p.last_name,
+          email:           e.email           || e.personal_emails?.[0] || e.work_email || p.email || '',
+          phone:           e.phone_numbers?.[0]?.raw_number || e.mobile_phone || e.sanitized_phone || p.phone || '',
+          linkedin_url:    e.linkedin_url    || p.linkedin_url,
+          photo_url:       e.photo_url       || p.photo_url,
+          title:           e.title           || p.title,
+          headline:        e.headline        || e.title || p.headline,
+          organization:    e.organization    || p.organization,
+          current_company: e.organization?.name || e.employment_history?.[0]?.organization_name || p.current_company,
+          location:        e.city ? `${e.city}${e.country ? ', ' + e.country : ''}` : p.location,
         };
       });
 
-      console.log('Profiles with email:', people.filter(p => p.email).length);
-      console.log('Profiles with phone:', people.filter(p => p.phone).length);
+      console.log('After enrichment:');
+      console.log('- With full name:', people.filter(p => p.full_name && !p.full_name.includes('***')).length);
+      console.log('- With email:',     people.filter(p => p.email).length);
+      console.log('- With phone:',     people.filter(p => p.phone).length);
+      console.log('- With LinkedIn:',  people.filter(p => p.linkedin_url).length);
     } catch (enrichErr) {
       console.error('Enrichment error:', enrichErr.response?.status, enrichErr.response?.data?.error);
       console.log('Continuing with unenriched data...');
