@@ -791,37 +791,31 @@ app.get('/api/linkedin/config', requireAuth, (_req, res) => {
 app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   const apolloKey = process.env.APOLLO_API_KEY;
 
-  console.log('Apollo key exists:', !!apolloKey);
-  console.log('Apollo key length:', apolloKey?.length);
-  console.log('Apollo key preview:', apolloKey?.substring(0, 8));
-
   if (!apolloKey) {
     return res.status(400).json({ error: 'APOLLO_API_KEY not configured on server.' });
   }
 
+  console.log('Apollo key loaded, length:', apolloKey?.length);
+
   const { job_title, location } = req.body;
-  const limit = Math.min(Math.max(parseInt(req.body.limit, 10) || 25, 1), 25);
+  const limit = Math.min(parseInt(req.body.limit) || 10, 25);
 
   if (!job_title?.trim()) return res.status(400).json({ error: 'Job title is required.' });
   if (!location?.trim())  return res.status(400).json({ error: 'Location is required.' });
 
   const today = new Date().toISOString().split('T')[0];
 
-  console.log('Attempting Apollo search...');
-  console.log('Key starts with:', apolloKey.substring(0, 8));
-
-  let searchRes;
+  let response;
   try {
-    searchRes = await axios.post(
-      'https://api.apollo.io/api/v1/mixed_people/search',
+    response = await axios.get(
+      'https://api.apollo.io/api/v1/mixed_people/api_search',
       {
-        api_key:          apolloKey,
-        person_titles:    [job_title.trim()],
-        person_locations: [location.trim()],
-        page:             1,
-        per_page:         limit,
-      },
-      {
+        params: {
+          'person_titles[]':    job_title.trim(),
+          'person_locations[]': location.trim(),
+          per_page:             limit,
+          page:                 1,
+        },
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
@@ -837,13 +831,16 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     });
   }
 
-  console.log('Apollo response status:', searchRes.status);
-  console.log('Apollo people count:', searchRes.data?.people?.length);
+  console.log('Apollo status:', response.status);
+  console.log('Apollo people found:', response.data?.people?.length);
+
+  const people = response.data?.people || [];
+
+  if (!people.length) {
+    return res.json({ success: true, added: 0, skipped: 0, total_found: 0, message: 'No profiles found for this search' });
+  }
 
   try {
-
-    const people = searchRes.data?.people || [];
-
     let added = 0, skipped = 0;
     const mapped = [];
     const client = await pool.connect();
@@ -851,29 +848,26 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     try {
       await client.query('BEGIN');
       for (const p of people) {
-        if (!p.name && !p.first_name && !p.last_name) { skipped++; continue; }
+        const fullName   = p.name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+        if (!fullName) { skipped++; continue; }
 
-        // Use LinkedIn URL as dedup key, fall back to Apollo id
         const profileUrl = p.linkedin_url
           ? p.linkedin_url.replace(/\/$/, '')
-          : `apollo:${p.id}`;
-
-        const locationStr = [p.city, p.state, p.country].filter(Boolean).join(', ') || location || null;
-        const phone       = p.phone_numbers?.[0]?.sanitized_number || null;
+          : `apollo:${p.id || `${Date.now()}_${Math.random()}`}`;
 
         const contact = {
           profile_url:       profileUrl,
-          full_name:         p.name || [p.first_name, p.last_name].filter(Boolean).join(' ') || null,
-          first_name:        p.first_name  || null,
-          last_name:         p.last_name   || null,
-          headline:          p.headline    || p.title || null,
-          current_company:   p.organization?.name || null,
-          current_title:     p.title       || null,
-          location:          locationStr,
-          email:             p.email       || null,
-          phone,
+          full_name:         fullName || null,
+          first_name:        p.first_name || null,
+          last_name:         p.last_name  || null,
+          headline:          p.headline   || p.title || null,
+          current_company:   p.organization?.name || p.employment_history?.[0]?.organization_name || null,
+          current_title:     p.title      || null,
+          location:          p.city ? `${p.city}${p.country ? ', ' + p.country : ''}` : (location || null),
+          email:             p.email      || null,
+          phone:             p.phone_numbers?.[0]?.raw_number || p.phone_numbers?.[0]?.sanitized_number || null,
           linkedin_url:      p.linkedin_url || null,
-          profile_picture:   p.photo_url   || null,
+          profile_picture:   p.photo_url  || null,
           connections:       null,
           summary:           null,
           scraped_date:      today,
