@@ -847,20 +847,11 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
   console.log('People IDs extracted:', peopleIds.length);
   if (peopleIds.length > 0) {
     try {
-      console.log('=== ENRICHMENT DEBUG ===');
-      console.log('Sending', peopleIds.length, 'IDs to bulk_match');
-      console.log('First ID sample:', peopleIds[0]);
-      console.log('Enrichment request body:', JSON.stringify({
-        details:                peopleIds.slice(0, 2).map(id => ({ id })),
-        reveal_personal_emails: true,
-        reveal_phone_number:    true,
-      }));
       const enrichResponse = await axios.post(
         'https://api.apollo.io/api/v1/people/bulk_match',
         {
-          details:                 peopleIds.map(id => ({ id })),
-          reveal_personal_emails:  true,
-          reveal_phone_number:     true,
+          details:                peopleIds.map(id => ({ id })),
+          reveal_personal_emails: true,
         },
         {
           headers: {
@@ -872,10 +863,15 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
           timeout: 30000,
         }
       );
-      console.log('Enrichment response status:', enrichResponse.status);
-      console.log('Enrichment response keys:', Object.keys(enrichResponse.data || {}));
-      console.log('Matches count:', enrichResponse.data?.matches?.length);
-      console.log('First match sample:', JSON.stringify(enrichResponse.data?.matches?.[0], null, 2));
+      console.log('Enrichment status:', enrichResponse.status);
+      console.log('Matches:', enrichResponse.data?.matches?.length);
+      console.log('First match full:', JSON.stringify(enrichResponse.data?.matches?.[0], null, 2));
+
+      const firstMatch = enrichResponse.data?.matches?.[0];
+      console.log('Email found:',       firstMatch?.email);
+      console.log('Sanitized phone:',   firstMatch?.sanitized_phone);
+      console.log('Phone numbers array:', JSON.stringify(firstMatch?.phone_numbers));
+      console.log('Organization phone:', firstMatch?.organization?.phone);
 
       const enrichedMap = {};
       (enrichResponse.data?.matches || []).forEach(m => { if (m.id) enrichedMap[m.id] = m; });
@@ -886,15 +882,15 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
         return {
           ...p,
           full_name:       e.name || `${e.first_name || ''} ${e.last_name || ''}`.trim() || p.full_name,
-          first_name:      e.first_name      || p.first_name,
-          last_name:       e.last_name       || p.last_name,
-          email:           e.email           || e.personal_emails?.[0] || e.work_email || p.email || '',
-          phone:           e.phone_numbers?.[0]?.raw_number || e.mobile_phone || e.sanitized_phone || p.phone || '',
-          linkedin_url:    e.linkedin_url    || p.linkedin_url,
-          photo_url:       e.photo_url       || p.photo_url,
-          title:           e.title           || p.title,
-          headline:        e.headline        || e.title || p.headline,
-          organization:    e.organization    || p.organization,
+          first_name:      e.first_name   || p.first_name,
+          last_name:       e.last_name    || p.last_name,
+          email:           e.email        || e.personal_emails?.[0] || e.work_email || p.email || '',
+          phone:           e.sanitized_phone || e.phone_numbers?.[0]?.sanitized_number || e.organization?.phone || e.mobile_phone || p.phone || '',
+          linkedin_url:    e.linkedin_url || p.linkedin_url,
+          photo_url:       e.photo_url    || p.photo_url,
+          title:           e.title        || p.title,
+          headline:        e.headline     || e.title || p.headline,
+          organization:    e.organization || p.organization,
           current_company: e.organization?.name || e.employment_history?.[0]?.organization_name || p.current_company,
           location:        e.city ? `${e.city}${e.country ? ', ' + e.country : ''}` : p.location,
         };
