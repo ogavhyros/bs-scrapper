@@ -805,23 +805,24 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const url         = 'https://api.apollo.io/api/v1/mixed_people/api_search';
-  const queryParams = {
-    'person_titles[]':    job_title.trim(),
-    'person_locations[]': location.trim(),
-    per_page:             limit,
-    page:                 1,
-  };
+  const queryString = [
+    `api_key=${apolloKey}`,
+    `person_titles[]=${encodeURIComponent(job_title.trim())}`,
+    `person_locations[]=${encodeURIComponent(location.trim())}`,
+    `per_page=${limit}`,
+    `page=1`,
+  ].join('&');
 
-  console.log('Calling URL:', url);
-  console.log('With params:', JSON.stringify(queryParams));
+  const fullUrl = `https://api.apollo.io/api/v1/mixed_people/api_search?${queryString}`;
+
+  console.log('Calling URL (key redacted):', fullUrl.replace(apolloKey, '[KEY]'));
 
   let response;
   try {
-    response = await axios.get(url, {
-      params:  queryParams,
+    response = await axios.post(fullUrl, {}, {
       headers: {
         'accept':        'application/json',
+        'Content-Type':  'application/json',
         'Cache-Control': 'no-cache',
         'X-Api-Key':     apolloKey,
       },
@@ -829,7 +830,7 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Apollo error status:', err.response?.status);
-    console.error('Apollo error URL:',    err.config?.url);
+    console.error('Apollo error URL:',    err.config?.url?.replace(apolloKey, '[KEY]'));
     console.error('Apollo error data:',   JSON.stringify(err.response?.data));
     return res.status(500).json({
       error: err.response?.data?.error || err.response?.data?.message || err.message,
