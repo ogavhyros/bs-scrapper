@@ -807,15 +807,15 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   let response;
   try {
-    response = await axios.get(
-      'https://api.apollo.io/api/v1/mixed_people/api_search',
+    response = await axios.post(
+      'https://api.apollo.io/v1/mixed_people/search',
       {
-        params: {
-          'person_titles[]':    job_title.trim(),
-          'person_locations[]': location.trim(),
-          per_page:             limit,
-          page:                 1,
-        },
+        person_titles:    [job_title.trim()],
+        person_locations: [location.trim()],
+        per_page:         limit,
+        page:             1,
+      },
+      {
         headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
@@ -831,8 +831,10 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     });
   }
 
-  console.log('Apollo status:', response.status);
+  console.log('Apollo full URL called: https://api.apollo.io/v1/mixed_people/search');
+  console.log('Apollo response status:', response.status);
   console.log('Apollo people found:', response.data?.people?.length);
+  console.log('Apollo full response keys:', Object.keys(response.data || {}));
 
   const people = response.data?.people || [];
 
