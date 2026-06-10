@@ -907,6 +907,52 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     }
   }
 
+  // ── STEP 3: Individual people/match for phones (no webhook needed) ─────────
+  const enrichedWithPhones = await Promise.all(
+    people.slice(0, 10).map(async (p) => {
+      if (!p.id) return p;
+      try {
+        const phoneRes = await axios.post(
+          'https://api.apollo.io/api/v1/people/match',
+          { id: p.id },
+          {
+            headers: {
+              'accept':        'application/json',
+              'Content-Type':  'application/json',
+              'Cache-Control': 'no-cache',
+              'x-api-key':     apolloKey,
+            },
+            timeout: 10000,
+          }
+        );
+        const person = phoneRes.data?.person;
+        if (!person) return p;
+        console.log(`${person.name}: email=${person.email} phone=${person.sanitized_phone}`);
+        return {
+          ...p,
+          full_name:       person.name          || p.full_name,
+          first_name:      person.first_name    || p.first_name,
+          last_name:       person.last_name     || p.last_name,
+          email:           person.email         || p.email         || '',
+          phone:           person.sanitized_phone || person.phone_numbers?.[0]?.sanitized_number || person.mobile_phone || p.phone || '',
+          linkedin_url:    person.linkedin_url  || p.linkedin_url,
+          photo_url:       person.photo_url     || p.photo_url,
+          title:           person.title         || p.title,
+          current_company: person.organization?.name || p.current_company,
+        };
+      } catch (e) {
+        console.error('Phone match error for', p.id, ':', e.response?.status, e.response?.data?.error);
+        return p;
+      }
+    })
+  );
+  people = enrichedWithPhones.concat(people.slice(10));
+
+  console.log('Final results:');
+  console.log('With email:', people.filter(p => p.email).length);
+  console.log('With phone:', people.filter(p => p.phone).length);
+  console.log('Full names:', people.filter(p => p.full_name && !p.full_name.includes('***')).length);
+
   try {
     let added = 0, skipped = 0;
     const mapped = [];
