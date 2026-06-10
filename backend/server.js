@@ -1248,6 +1248,43 @@ app.delete('/api/aphl/calculations/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ─── TEMPORARY: Apollo test endpoint ─────────────────────────────────────────
+app.get('/api/aphl/test-apollo', requireAuth, async (_req, res) => {
+  const apolloKey = process.env.APOLLO_API_KEY;
+  try {
+    const response = await axios.post(
+      'https://api.apollo.io/v1/mixed_people/search',
+      {
+        person_titles:    ['manager'],
+        person_locations: ['nigeria'],
+        page:             1,
+        per_page:         5,
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'X-Api-Key':     apolloKey,
+        },
+      }
+    );
+    res.json({
+      success:      true,
+      status:       response.status,
+      people_count: response.data?.people?.length,
+      first_person: response.data?.people?.[0]?.name,
+      pagination:   response.data?.pagination,
+    });
+  } catch (err) {
+    res.json({
+      success: false,
+      status:  err.response?.status,
+      error:   err.response?.data,
+      message: err.message,
+    });
+  }
+});
+
 // ─── DIESEL PRICE ROUTES ──────────────────────────────────────────────────────
 
 // GET /api/aphl/diesel — current settings + price history
