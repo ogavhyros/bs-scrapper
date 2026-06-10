@@ -810,10 +810,11 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     response = await axios.post(
       'https://api.apollo.io/v1/mixed_people/search',
       {
-        person_titles:    [job_title.trim()],
-        person_locations: [location.trim()],
-        per_page:         limit,
-        page:             1,
+        person_titles:               [job_title.trim()],
+        person_locations:            [location.trim()],
+        page:                        1,
+        per_page:                    limit,
+        prospected_by_current_team:  ['no'],
       },
       {
         headers: {
@@ -826,6 +827,7 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
     );
   } catch (apolloErr) {
     console.error('Apollo error:', apolloErr.response?.data);
+    console.error('Apollo 422 details:', JSON.stringify(apolloErr.response?.data, null, 2));
     return res.status(500).json({
       error: apolloErr.response?.data?.message || apolloErr.message || 'Apollo API call failed',
     });
