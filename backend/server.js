@@ -805,40 +805,35 @@ app.post('/api/linkedin/scrape', requireAuth, async (req, res) => {
 
   const today = new Date().toISOString().split('T')[0];
 
-  const queryString = [
-    `api_key=${apolloKey}`,
-    `person_titles[]=${encodeURIComponent(job_title.trim())}`,
-    `person_locations[]=${encodeURIComponent(location.trim())}`,
-    `per_page=${limit}`,
-    `page=1`,
-  ].join('&');
+  const titleEncoded    = encodeURIComponent(job_title.trim());
+  const locationEncoded = encodeURIComponent(location.trim());
+  const url = `https://api.apollo.io/api/v1/mixed_people/api_search?person_titles[]=${titleEncoded}&person_locations[]=${locationEncoded}&per_page=${limit}&page=1`;
 
-  const fullUrl = `https://api.apollo.io/api/v1/mixed_people/api_search?${queryString}`;
-
-  console.log('Calling URL (key redacted):', fullUrl.replace(apolloKey, '[KEY]'));
+  console.log('Apollo URL:', url);
 
   let response;
   try {
-    response = await axios.post(fullUrl, {}, {
+    response = await axios.post(url, {}, {
       headers: {
         'accept':        'application/json',
         'Content-Type':  'application/json',
         'Cache-Control': 'no-cache',
-        'X-Api-Key':     apolloKey,
+        'x-api-key':     apolloKey,
       },
       timeout: 30000,
     });
   } catch (err) {
     console.error('Apollo error status:', err.response?.status);
-    console.error('Apollo error URL:',    err.config?.url?.replace(apolloKey, '[KEY]'));
+    console.error('Apollo error URL:',    err.config?.url);
     console.error('Apollo error data:',   JSON.stringify(err.response?.data));
     return res.status(500).json({
       error: err.response?.data?.error || err.response?.data?.message || err.message,
     });
   }
 
-  console.log('Apollo success! Status:', response.status);
-  console.log('People found:', response.data?.people?.length);
+  console.log('Apollo status:', response.status);
+  console.log('Apollo people count:', response.data?.people?.length);
+  console.log('Apollo total entries:', response.data?.total_entries);
 
   const people = response.data?.people || [];
 
