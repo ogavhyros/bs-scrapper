@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Printer, Save, Trash2 } from 'lucide-react';
 import { getAuthHeader } from '../../context/AuthContext';
 
@@ -16,7 +16,6 @@ function compute(f) {
   if (!dl || !dp || !vol) return null;
 
   const dieselCost = dl * dp;
-  const driver     = n(f.driverAllowance);
   const loader     = n(f.loaderFee);
   const tolls      = n(f.tollFees);
   const depot      = n(f.depotCharges);
@@ -25,29 +24,39 @@ function compute(f) {
   const repairs    = n(f.repairsReserve);
   const misc       = n(f.miscellaneous);
   const overhead   = n(f.overhead);
-  const tripExp    = driver + loader + tolls + depot + permits + security + repairs + misc;
+  const tripExp    = loader + tolls + depot + permits + security + repairs + misc;
   const totalCost  = dieselCost + tripExp + overhead;
   const margin     = n(f.targetMargin);
   const breakEven  = totalCost / vol;
   const tgtProfit  = totalCost * (margin / 100);
   const recRate    = (totalCost + tgtProfit) / vol;
   const recRev     = recRate * vol;
-  const netProfit  = recRev - totalCost;
+  const netProfit  = recRev - totalCost; // = tgtProfit, before splitting with the driver
+
+  // Driver payment: a % of whatever's left after fuel + every trip expense — i.e. a share
+  // of the trip's profit, not a flat cost baked into the rate. At break-even (netProfit = 0)
+  // the driver gets nothing, same as the company.
+  const driverPct     = n(f.driverPct);
+  const driverPayment = netProfit * (driverPct / 100);
+  const companyProfit = netProfit - driverPayment;
 
   return {
-    dieselCost, driver, loader, tolls, depot, permits, security, repairs, misc,
+    dieselCost, loader, tolls, depot, permits, security, repairs, misc,
     overhead, tripExp, totalCost, breakEven, margin, tgtProfit, recRate, recRev,
-    netProfit, vol, dl, dp, minVol: n(f.minVolume),
+    netProfit, driverPct, driverPayment, companyProfit,
+    vol, dl, dp, minVol: n(f.minVolume),
   };
 }
 
 const BLANK = {
-  route: '', product: 'AGO', volume: 33000, truck: 'Truck 1',
+  route: '', origin: '', destination: '', originPlaceId: '', destinationPlaceId: '',
+  distanceKm: '', fuelRate: 5,
+  product: 'AGO', volume: 33000, truck: 'Truck 1',
   dieselLitres: '', dieselPrice: '',
-  driverAllowance: 15000, loaderFee: 5000, tollFees: 8000,
+  loaderFee: 5000, tollFees: 8000,
   depotCharges: 0, nmdpra: 0, securityEscort: 0,
   repairsReserve: 5000, miscellaneous: 0,
-  minVolume: 3000, targetMargin: 20, overhead: 10000,
+  minVolume: 3000, targetMargin: 20, overhead: 10000, driverPct: 30,
 };
 
 const inp = {
@@ -74,6 +83,60 @@ function SCard({ title, color, children }) {
   );
 }
 
+// Live location search — suggests real places as you type so origin/destination
+// can be picked precisely (by place_id) instead of guessed from free text.
+function LocationAutocomplete({ value, onChange, onSelect, placeholder }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!value || value.trim().length < 3) { setSuggestions([]); return; }
+    timerRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await fetch(`${API}/api/aphl/places-autocomplete?input=${encodeURIComponent(value)}`, { headers: getAuthHeader() });
+        const data = await r.json();
+        setSuggestions(data.predictions || []);
+        setOpen(true);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(timerRef.current);
+  }, [value]);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input type="text" value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => suggestions.length > 0 && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={placeholder} style={inp} autoComplete="off" />
+      {loading && (
+        <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 11, color: 'var(--text-muted)' }}>…</div>
+      )}
+      {open && suggestions.length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 30, top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', maxHeight: 220, overflowY: 'auto' }}>
+          {suggestions.map(s => (
+            <div key={s.place_id}
+              onMouseDown={() => { onSelect(s); setOpen(false); }}
+              style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}
+              onMouseOver={e => { e.currentTarget.style.background = 'var(--bg-input)'; }}
+              onMouseOut={e => { e.currentTarget.style.background = 'transparent'; }}>
+              📍 {s.description}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RCard({ title, amount, sub, color, bg }) {
   return (
     <div style={{ background: bg, border: `1.5px solid ${color}44`, borderRadius: 12, padding: '16px 18px', marginBottom: 12 }}>
@@ -90,11 +153,62 @@ export default function RateCalculator({ showToast }) {
   const [saving,    setSaving]    = useState(false);
   const [diesel,    setDiesel]    = useState({ current_depot_price: 0, market_markup: 50 });
   const [priceMode, setPriceMode] = useState('trip');
+  const [dieselMode, setDieselMode] = useState('auto'); // 'auto' (from distance) | 'manual'
+  const [distanceLoading, setDistanceLoading] = useState(false);
+  const [distanceInfo, setDistanceInfo] = useState(null); // { origin, destination } matched place names
 
   const calc  = useMemo(() => compute(form), [form]);
   const show  = calc !== null;
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Auto-derive the route label from origin/destination — no more free-typed vague routes
+  useEffect(() => {
+    const label = [form.origin, form.destination].filter(Boolean).join(' → ');
+    if (label !== form.route) set('route', label);
+  }, [form.origin, form.destination]);
+
+  // Auto-estimate diesel litres from distance × fuel rate when in 'auto' mode
+  useEffect(() => {
+    if (dieselMode !== 'auto') return;
+    const km   = n(form.distanceKm);
+    const rate = n(form.fuelRate);
+    if (km > 0 && rate > 0) set('dieselLitres', Math.round(km * rate));
+  }, [dieselMode, form.distanceKm, form.fuelRate]);
+
+  const handleCalcDistance = async () => {
+    if (!form.origin || !form.destination) {
+      showToast('Enter both an origin and a destination first', 'error');
+      return;
+    }
+    setDistanceLoading(true);
+    try {
+      const r = await fetch(`${API}/api/aphl/distance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify({
+          origin: form.origin, destination: form.destination,
+          origin_place_id: form.originPlaceId || undefined,
+          destination_place_id: form.destinationPlaceId || undefined,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Could not calculate distance');
+      set('distanceKm', data.distance_km);
+      setDistanceInfo({
+        origin: data.origin.name,
+        destination: data.destination.name,
+        originLatLng: `${data.origin.lat.toFixed(4)}, ${data.origin.lng.toFixed(4)}`,
+        destLatLng: `${data.destination.lat.toFixed(4)}, ${data.destination.lng.toFixed(4)}`,
+        precise: !!data.precise,
+      });
+      showToast(`Distance found: ${data.distance_km} km`, 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setDistanceLoading(false);
+    }
+  };
 
   const loadHistory = () =>
     fetch(`${API}/api/aphl/calculations`, { headers: getAuthHeader() })
@@ -156,6 +270,10 @@ export default function RateCalculator({ showToast }) {
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         body: JSON.stringify({
           route: form.route || null,
+          origin: form.origin || null,
+          destination: form.destination || null,
+          distance_km: n(form.distanceKm) || null,
+          fuel_rate: dieselMode === 'auto' ? n(form.fuelRate) : null,
           product: form.product,
           volume_litres: calc.vol,
           truck: form.truck,
@@ -170,6 +288,8 @@ export default function RateCalculator({ showToast }) {
           recommended_rate: calc.recRate,
           total_revenue: calc.recRev,
           net_profit: calc.netProfit,
+          driver_pct: calc.driverPct,
+          driver_payment: calc.driverPayment,
         }),
       });
       if (!r.ok) throw new Error((await r.json()).error || 'Save failed');
@@ -198,7 +318,7 @@ export default function RateCalculator({ showToast }) {
   };
 
   const tripExpSubtotal = useMemo(() =>
-    ['driverAllowance','loaderFee','tollFees','depotCharges','nmdpra','securityEscort','repairsReserve','miscellaneous']
+    ['loaderFee','tollFees','depotCharges','nmdpra','securityEscort','repairsReserve','miscellaneous']
       .reduce((s, k) => s + n(form[k]), 0),
   [form]);
 
@@ -226,7 +346,6 @@ export default function RateCalculator({ showToast }) {
               <tbody>
                 {[
                   ['Diesel Cost',       fmtCur(calc.dieselCost)],
-                  ['Driver Allowance',  fmtCur(calc.driver)],
                   ['Loader/Offloader',  fmtCur(calc.loader)],
                   ['Toll Fees',         fmtCur(calc.tolls)],
                   ['Depot Charges',     fmtCur(calc.depot)],
@@ -258,8 +377,12 @@ export default function RateCalculator({ showToast }) {
               </div>
             </div>
             <div style={{ fontSize: 13, marginBottom: 6 }}>
-              Net Profit: <strong style={{ color: '#15803d' }}>{fmtCur(calc.netProfit)}</strong>
-              &nbsp;·&nbsp; Margin: <strong>{calc.margin}%</strong>
+              Trip Profit: <strong style={{ color: '#15803d' }}>{fmtCur(calc.netProfit)}</strong>
+              &nbsp;·&nbsp; Driver ({calc.driverPct}%): <strong>{fmtCur(calc.driverPayment)}</strong>
+              &nbsp;·&nbsp; Company: <strong>{fmtCur(calc.companyProfit)}</strong>
+            </div>
+            <div style={{ fontSize: 13, marginBottom: 6 }}>
+              Margin: <strong>{calc.margin}%</strong>
               &nbsp;·&nbsp; Volume: <strong>{fmtNum(calc.vol)}L</strong>
             </div>
             <div style={{ fontSize: 11, color: '#888', borderTop: '1px solid #eee', paddingTop: 12, marginTop: 20 }}>
@@ -275,46 +398,64 @@ export default function RateCalculator({ showToast }) {
         {/* LEFT — Input form */}
         <form onSubmit={handleSubmit}>
 
-          {/* A — Trip Details */}
-          <SCard title="A — Trip Details" color="#f59e0b">
+          {/* A — Trip Assumptions: every factor that drives distance & fuel cost, all in one place, all editable */}
+          <SCard title="A — Trip Assumptions" color="#f59e0b">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div>
-                <label style={lbl}>Trip Route (optional)</label>
-                <input type="text" value={form.route} onChange={e => set('route', e.target.value)}
-                  placeholder="e.g. Abonema Wharf → Warri Depot" style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Product Being Hauled</label>
-                <select value={form.product} onChange={e => set('product', e.target.value)} style={inp}>
-                  {['AGO', 'PMS', 'DPK', 'ATK'].map(p => <option key={p}>{p}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={lbl}>Volume to Haul (litres)</label>
-                <input type="number" value={form.volume} onChange={e => set('volume', e.target.value)}
-                  placeholder="33000" min="1" style={inp} />
-                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                  {[33000, 45000].map(v => (
-                    <button key={v} type="button" onClick={() => set('volume', v)}
-                      style={{ padding: '4px 12px', borderRadius: 99, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1px solid ${+form.volume === v ? '#f59e0b' : 'var(--border)'}`, background: +form.volume === v ? '#fef3c7' : 'var(--bg-input)', color: +form.volume === v ? '#92400e' : 'var(--text-muted)', transition: 'all 0.15s' }}>
-                      {v.toLocaleString('en-NG')}L
-                    </button>
-                  ))}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Standard tanker: 33,000L or 45,000L</div>
-              </div>
-              <div>
-                <label style={lbl}>Truck</label>
-                <select value={form.truck} onChange={e => set('truck', e.target.value)} style={inp}>
-                  {['Truck 1', 'Truck 2', 'Both'].map(t => <option key={t}>{t}</option>)}
-                </select>
-              </div>
-            </div>
-          </SCard>
 
-          {/* B — Fuel Costs */}
-          <SCard title="B — Fuel Costs" color="#ef4444">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={lbl}>Origin</label>
+                <LocationAutocomplete
+                  value={form.origin}
+                  onChange={val => { set('origin', val); set('originPlaceId', ''); setDistanceInfo(null); }}
+                  onSelect={s => { set('origin', s.description); set('originPlaceId', s.place_id); setDistanceInfo(null); }}
+                  placeholder="e.g. Abonema Wharf, Port Harcourt" />
+                {form.originPlaceId && (
+                  <div style={{ fontSize: 10.5, color: '#15803d', marginTop: 3, fontWeight: 600 }}>✓ Exact location selected</div>
+                )}
+              </div>
+              <div>
+                <label style={lbl}>Destination</label>
+                <LocationAutocomplete
+                  value={form.destination}
+                  onChange={val => { set('destination', val); set('destinationPlaceId', ''); setDistanceInfo(null); }}
+                  onSelect={s => { set('destination', s.description); set('destinationPlaceId', s.place_id); setDistanceInfo(null); }}
+                  placeholder="e.g. Warri Depot, Delta State" />
+                {form.destinationPlaceId && (
+                  <div style={{ fontSize: 10.5, color: '#15803d', marginTop: 3, fontWeight: 600 }}>✓ Exact location selected</div>
+                )}
+              </div>
+
+              <div>
+                <label style={lbl}>Distance (km) — editable</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="number" value={form.distanceKm} onChange={e => set('distanceKm', e.target.value)}
+                    min="0" placeholder="e.g. 320" style={{ ...inp, flex: 1 }} />
+                  <button type="button" onClick={handleCalcDistance} disabled={distanceLoading}
+                    style={{ padding: '0 14px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: distanceLoading ? 'not-allowed' : 'pointer', opacity: distanceLoading ? 0.7 : 1, whiteSpace: 'nowrap' }}>
+                    {distanceLoading ? '…' : '📍 Auto'}
+                  </button>
+                </div>
+                {distanceInfo ? (
+                  <div style={{ marginTop: 8, background: distanceInfo.precise ? 'rgba(22,163,74,0.06)' : 'rgba(107,114,128,0.06)', border: `1px solid ${distanceInfo.precise ? 'rgba(22,163,74,0.25)' : 'var(--border)'}`, borderRadius: 8, padding: '9px 11px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: distanceInfo.precise ? '#15803d' : 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                      {distanceInfo.precise ? '✓ Exact locations matched' : '~ Best-guess text match — pick a suggestion above for precision'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>📍 {distanceInfo.origin}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>{distanceInfo.originLatLng}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-primary)' }}>🏁 {distanceInfo.destination}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{distanceInfo.destLatLng}</div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Pick a suggestion as you type origin & destination, then Auto — or type a known distance directly
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={lbl}>Fuel Consumption Rate (L/km) — editable</label>
+                <input type="number" step="0.1" value={form.fuelRate} onChange={e => set('fuelRate', e.target.value)} min="0" style={inp} />
+              </div>
 
               {/* Diesel price info box */}
               {(n(diesel.current_depot_price) > 0) && (
@@ -338,7 +479,7 @@ export default function RateCalculator({ showToast }) {
 
               {/* Price mode selector */}
               <div>
-                <label style={lbl}>Price per Litre *</label>
+                <label style={lbl}>Price per Litre — editable *</label>
                 {[
                   { val: 'trip',   label: `Use Trip Fuel Cost (${fmtCur(n(diesel.current_depot_price) + n(diesel.market_markup))}/L)`, sub: 'Depot price + outside markup — default for trips' },
                   { val: 'depot',  label: `Use Depot Price (${fmtCur(diesel.current_depot_price)}/L)`,                                   sub: 'Official rate — if fueling at the depot' },
@@ -368,17 +509,90 @@ export default function RateCalculator({ showToast }) {
               </div>
 
               <div>
-                <label style={lbl}>Diesel Used for Trip (litres) *</label>
-                <input type="number" value={form.dieselLitres} onChange={e => set('dieselLitres', e.target.value)}
+                <label style={lbl}>Diesel Used for Trip (litres) — editable *</label>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  {[
+                    { val: 'auto',   label: 'Estimate from distance' },
+                    { val: 'manual', label: 'Enter manually' },
+                  ].map(opt => (
+                    <button key={opt.val} type="button" onClick={() => setDieselMode(opt.val)}
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer',
+                        border: `1px solid ${dieselMode === opt.val ? '#ef4444' : 'var(--border)'}`,
+                        background: dieselMode === opt.val ? 'rgba(239,68,68,0.08)' : 'var(--bg-input)',
+                        color: dieselMode === opt.val ? '#dc2626' : 'var(--text-muted)', transition: 'all 0.15s' }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {dieselMode === 'auto' && (
+                  n(form.distanceKm) > 0 && n(form.fuelRate) > 0 ? (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>
+                      {form.distanceKm} km × {form.fuelRate} L/km = {Math.round(n(form.distanceKm) * n(form.fuelRate))} L — you can still override the number below
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#dc2626', marginBottom: 8 }}>Enter or auto-calculate a distance above first, or switch to manual entry</div>
+                  )
+                )}
+                <input type="number" value={form.dieselLitres} onChange={e => { setDieselMode('manual'); set('dieselLitres', e.target.value); }}
                   placeholder="e.g. 450" min="0" style={inp} />
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Typical PH–Warri trip: 300–450L</div>
+                {dieselMode === 'manual' && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Typical PH–Warri trip: 300–450L</div>
+                )}
               </div>
 
-              <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: 8, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Total Diesel Cost</span>
-                <span style={{ fontSize: 15, fontWeight: 800, color: '#dc2626' }}>
-                  {form.dieselLitres && form.dieselPrice ? fmtCur(n(form.dieselLitres) * n(form.dieselPrice)) : '—'}
-                </span>
+              {/* Live summary strip — everything above, at a glance */}
+              <div style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Trip Summary</div>
+                {[
+                  ['Route',        (form.origin || form.destination) ? form.route : '—'],
+                  ['Distance',     n(form.distanceKm) > 0 ? `${form.distanceKm} km` : '—'],
+                  ['Fuel Rate',    n(form.fuelRate) > 0 ? `${form.fuelRate} L/km` : '—'],
+                  ['Diesel Needed',form.dieselLitres ? `${fmtNum(form.dieselLitres)} L` : '—'],
+                  ['Diesel Price', form.dieselPrice ? `${fmtCur(form.dieselPrice)}/L` : '—'],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{v}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(245,158,11,0.25)', paddingTop: 6, marginTop: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>Total Diesel Cost</span>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: '#dc2626' }}>
+                    {form.dieselLitres && form.dieselPrice ? fmtCur(n(form.dieselLitres) * n(form.dieselPrice)) : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </SCard>
+
+          {/* B — Load Details */}
+          <SCard title="B — Load Details" color="#ef4444">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={lbl}>Product Being Hauled</label>
+                <select value={form.product} onChange={e => set('product', e.target.value)} style={inp}>
+                  {['AGO', 'PMS', 'DPK', 'ATK'].map(p => <option key={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Volume to Haul (litres)</label>
+                <input type="number" value={form.volume} onChange={e => set('volume', e.target.value)}
+                  placeholder="33000" min="1" style={inp} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  {[33000, 45000].map(v => (
+                    <button key={v} type="button" onClick={() => set('volume', v)}
+                      style={{ padding: '4px 12px', borderRadius: 99, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1px solid ${+form.volume === v ? '#f59e0b' : 'var(--border)'}`, background: +form.volume === v ? '#fef3c7' : 'var(--bg-input)', color: +form.volume === v ? '#92400e' : 'var(--text-muted)', transition: 'all 0.15s' }}>
+                      {v.toLocaleString('en-NG')}L
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Standard tanker: 33,000L or 45,000L</div>
+              </div>
+              <div>
+                <label style={lbl}>Truck</label>
+                <select value={form.truck} onChange={e => set('truck', e.target.value)} style={inp}>
+                  {['Truck 1', 'Truck 2', 'Both'].map(t => <option key={t}>{t}</option>)}
+                </select>
               </div>
             </div>
           </SCard>
@@ -387,7 +601,6 @@ export default function RateCalculator({ showToast }) {
           <SCard title="C — Trip Expenses" color="#3b82f6">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {[
-                { key: 'driverAllowance', label: 'Driver Allowance ₦'          },
                 { key: 'loaderFee',       label: 'Loader/Offloader Fee ₦'      },
                 { key: 'tollFees',        label: 'Toll Fees ₦'                 },
                 { key: 'depotCharges',    label: 'Depot Loading Charges ₦'     },
@@ -441,6 +654,18 @@ export default function RateCalculator({ showToast }) {
                 <input type="number" value={form.overhead} onChange={e => set('overhead', e.target.value)} min="0" style={inp} />
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Admin, insurance, office costs per trip</div>
               </div>
+              <div>
+                <label style={lbl}>Driver Commission (%)</label>
+                <input type="number" value={form.driverPct} onChange={e => set('driverPct', e.target.value)} min="0" max="100" style={inp} />
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Share of trip profit (revenue minus fuel, trip expenses &amp; overhead) paid to the driver — not a flat cost, so break-even and the recommended rate don't change with it
+                </div>
+                {show && (
+                  <div style={{ fontSize: 12, color: '#16a34a', marginTop: 6, fontWeight: 600 }}>
+                    Driver gets {fmtCur(calc.driverPayment)} · Company keeps {fmtCur(calc.companyProfit)}
+                  </div>
+                )}
+              </div>
             </div>
           </SCard>
 
@@ -464,7 +689,6 @@ export default function RateCalculator({ showToast }) {
               <tbody>
                 {[
                   ['Diesel Cost',       show ? fmtCur(calc.dieselCost) : '—'],
-                  ['Driver Allowance',  show ? fmtCur(calc.driver)     : '—'],
                   ['Loader/Offloader',  show ? fmtCur(calc.loader)     : '—'],
                   ['Toll Fees',         show ? fmtCur(calc.tolls)      : '—'],
                   ['Depot Charges',     show ? fmtCur(calc.depot)      : '—'],
@@ -534,9 +758,9 @@ export default function RateCalculator({ showToast }) {
               <div style={{ background: 'rgba(22,163,74,0.06)', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>At Recommended</div>
                 {[
-                  ['Revenue',    show ? fmtCur(calc.recRev)     : '—', '#1d4ed8'],
-                  ['Costs',      show ? fmtCur(calc.totalCost)  : '—', '#dc2626'],
-                  ['Net Profit', show ? fmtCur(calc.netProfit)  : '—', '#15803d'],
+                  ['Revenue',      show ? fmtCur(calc.recRev)        : '—', '#1d4ed8'],
+                  ['Costs',        show ? fmtCur(calc.totalCost)     : '—', '#dc2626'],
+                  ['Trip Profit',  show ? fmtCur(calc.netProfit)     : '—', '#15803d'],
                 ].map(([k, v, c]) => (
                   <div key={k} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
                     <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{k}</span>
@@ -544,10 +768,20 @@ export default function RateCalculator({ showToast }) {
                   </div>
                 ))}
                 {show && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(22,163,74,0.2)', paddingTop: 5, marginTop: 5 }}>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Margin</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{calc.margin}%</span>
-                  </div>
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(22,163,74,0.2)', paddingTop: 5, marginTop: 5 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Driver ({calc.driverPct}%)</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#b45309' }}>{fmtCur(calc.driverPayment)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>Company Net Profit</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#15803d' }}>{fmtCur(calc.companyProfit)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(22,163,74,0.2)', paddingTop: 5, marginTop: 5 }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Margin</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{calc.margin}%</span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -616,6 +850,9 @@ export default function RateCalculator({ showToast }) {
                     </td>
                     <td style={{ padding: '9px 14px', color: 'var(--text-primary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {row.route || '—'}
+                      {row.distance_km ? (
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 400 }}>{fmtNum(row.distance_km)} km</div>
+                      ) : null}
                     </td>
                     <td style={{ padding: '9px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                       {fmtNum(row.volume_litres)}L

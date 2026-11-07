@@ -186,6 +186,13 @@ async function initDB() {
       calculated_at       TIMESTAMP DEFAULT NOW()
     )
   `);
+  // ── Rate calculations — location-based distance estimate columns ─────────
+  await pool.query(`ALTER TABLE rate_calculations ADD COLUMN IF NOT EXISTS origin TEXT`);
+  await pool.query(`ALTER TABLE rate_calculations ADD COLUMN IF NOT EXISTS destination TEXT`);
+  await pool.query(`ALTER TABLE rate_calculations ADD COLUMN IF NOT EXISTS distance_km NUMERIC`);
+  await pool.query(`ALTER TABLE rate_calculations ADD COLUMN IF NOT EXISTS fuel_rate NUMERIC`);
+  await pool.query(`ALTER TABLE rate_calculations ADD COLUMN IF NOT EXISTS driver_pct NUMERIC`);
+  await pool.query(`ALTER TABLE rate_calculations ADD COLUMN IF NOT EXISTS driver_payment NUMERIC`);
 
   // ── APHL Africa — Invoice Settings ──────────────────────────────────────
   await pool.query(`

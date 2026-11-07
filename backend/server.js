@@ -259,21 +259,30 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
       return res.end();
     }
 
-    // ── 2. Fetch Place Details in batches of 5 ────────────────────────────────
-    sendProgress(`Getting contact details for ${allPlaces.length} businesses…`);
+    // ── 2. Skip places already saved — Place Details is the costliest call ────
+    const { rows: existing } = await pool.query(
+      'SELECT place_id FROM contacts WHERE place_id = ANY($1)',
+      [allPlaces.map(p => p.place_id)]
+    );
+    const known     = new Set(existing.map(r => r.place_id));
+    const newPlaces = allPlaces.filter(p => !known.has(p.place_id));
+
+    // ── 3. Fetch Place Details in batches of 5 ────────────────────────────────
+    sendProgress(`Getting contact details for ${newPlaces.length} new businesses (${known.size} already saved)…`);
     console.log('Processing results...');
 
     const today    = new Date().toISOString().split('T')[0];
     const enriched = [];
     const BATCH    = 5;
 
-    for (let i = 0; i < allPlaces.length; i += BATCH) {
-      const batch        = allPlaces.slice(i, i + BATCH);
+    for (let i = 0; i < newPlaces.length; i += BATCH) {
+      const batch        = newPlaces.slice(i, i + BATCH);
       const batchResults = await Promise.all(batch.map(async place => {
         try {
           const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json` +
                             `?place_id=${place.place_id}` +
-                            `&fields=place_id,name,formatted_address,formatted_phone_number,website,rating,types,geometry` +
+                            // No `rating` here: it bills the Atmosphere SKU, and Text Search already returns it.
+                            `&fields=place_id,name,formatted_address,formatted_phone_number,website,types,geometry` +
                             `&key=${apiKey}`;
           const r    = await fetch(detailUrl);
           const body = await r.json();
@@ -298,13 +307,13 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
       enriched.push(...batchResults.filter(Boolean));
 
       // Small delay between detail batches to stay under rate limits
-      if (i + BATCH < allPlaces.length) {
+      if (i + BATCH < newPlaces.length) {
         await new Promise(r => setTimeout(r, 500));
       }
     }
 
-    // ── 3. Deduplicate and save ───────────────────────────────────────────────
-    let new_added = 0, skipped = 0;
+    // ── 4. Deduplicate and save ───────────────────────────────────────────────
+    let new_added = 0, skipped = known.size;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -333,10 +342,10 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
     console.log('New contacts added:', new_added);
     console.log('Duplicates skipped:', skipped);
 
-    // ── 4. Log run ────────────────────────────────────────────────────────────
+    // ── 5. Log run ────────────────────────────────────────────────────────────
     await pool.query(
       'INSERT INTO runs (keyword, location, date, added, skipped, total) VALUES ($1, $2, $3, $4, $5, $6)',
-      [keyword, location, today, new_added, skipped, enriched.length]
+      [keyword, location, today, new_added, skipped, enriched.length + known.size]
     );
 
     sendProgress(`Done! Added ${new_added} new contact${new_added !== 1 ? 's' : ''} from ${allPlaces.length} found.`);
@@ -629,6 +638,7 @@ app.delete('/api/crm/:place_id', requireAuth, async (req, res) => {
 // ─── APHL AFRICA ROUTES ───────────────────────────────────────────────────────
 
 const parseN = (v) => parseFloat(v) || 0;
+const fmtN   = (v) => `₦${Math.round(v || 0).toLocaleString('en-NG')}`;
 
 // GET /api/aphl/overview
 app.get('/api/aphl/overview', requireAuth, async (_req, res) => {
@@ -676,6 +686,183 @@ app.get('/api/aphl/overview', requireAuth, async (_req, res) => {
       recentSales: recentSales.rows, recentExpenses: recentExp.rows, monthlyChart, trucks: truckMap,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── UNIT ECONOMICS & OPERATIONS INSIGHTS ──────────────────────────────────────
+// GET /api/aphl/unit-economics?days=90&target_margin=20
+// Rule-based analysis of ACTUAL sales + expenses (not estimates) — cost/revenue per km,
+// per-truck and per-route performance, expense trends, and concrete next-step
+// recommendations for pricing and operations.
+app.get('/api/aphl/unit-economics', requireAuth, async (req, res) => {
+  const days         = Math.max(1, parseInt(req.query.days) || 90);
+  const targetMargin = Math.max(0, parseN(req.query.target_margin) || 20);
+
+  try {
+    const [
+      salesSummary, expSummary, truckSales, truckExp, routeSales,
+      catCurrent, catPriorReal, distanceQuality,
+    ] = await Promise.all([
+      pool.query(`SELECT COALESCE(SUM(total_amount),0) AS revenue, COALESCE(SUM(distance_km),0) AS distance, COUNT(*)::int AS trips
+                  FROM sales WHERE date >= CURRENT_DATE - ($1 || ' days')::interval`, [days]),
+      pool.query(`SELECT COALESCE(SUM(amount),0) AS expenses
+                  FROM expenses WHERE date >= CURRENT_DATE - ($1 || ' days')::interval`, [days]),
+      pool.query(`SELECT truck, COALESCE(SUM(total_amount),0) AS revenue, COALESCE(SUM(distance_km),0) AS distance, COUNT(*)::int AS trips
+                  FROM sales WHERE date >= CURRENT_DATE - ($1 || ' days')::interval AND truck IS NOT NULL
+                  GROUP BY truck`, [days]),
+      pool.query(`SELECT truck, COALESCE(SUM(amount),0) AS expenses
+                  FROM expenses WHERE date >= CURRENT_DATE - ($1 || ' days')::interval AND truck IS NOT NULL
+                  GROUP BY truck`, [days]),
+      pool.query(`SELECT origin, destination, COALESCE(SUM(total_amount),0) AS revenue,
+                    COALESCE(SUM(distance_km),0) AS distance, COUNT(*)::int AS trips
+                  FROM sales
+                  WHERE date >= CURRENT_DATE - ($1 || ' days')::interval
+                    AND origin IS NOT NULL AND origin != '' AND destination IS NOT NULL AND destination != ''
+                  GROUP BY origin, destination`, [days]),
+      pool.query(`SELECT category, COALESCE(SUM(amount),0) AS amount
+                  FROM expenses WHERE date >= CURRENT_DATE - ($1 || ' days')::interval
+                  GROUP BY category`, [days]),
+      // Prior period — same length, immediately before the current window.
+      pool.query(`SELECT category, COALESCE(SUM(amount),0) AS amount
+                  FROM expenses
+                  WHERE date >= CURRENT_DATE - ($1 * 2 || ' days')::interval
+                    AND date <  CURRENT_DATE - ($1 || ' days')::interval
+                  GROUP BY category`, [days]),
+      pool.query(`SELECT COUNT(*)::int AS total, COUNT(distance_km)::int AS with_distance
+                  FROM sales WHERE date >= CURRENT_DATE - ($1 || ' days')::interval`, [days]),
+    ]);
+
+    const revenue  = parseN(salesSummary.rows[0].revenue);
+    const distance = parseN(salesSummary.rows[0].distance);
+    const trips     = salesSummary.rows[0].trips;
+    const expenses  = parseN(expSummary.rows[0].expenses);
+    const profit    = revenue - expenses;
+    const marginPct = revenue > 0 ? (profit / revenue) * 100 : 0;
+    const fleetCostPerKm    = distance > 0 ? expenses / distance : 0;
+    const fleetRevPerKm     = distance > 0 ? revenue  / distance : 0;
+
+    // ── Per truck ──
+    const truckExpMap = {};
+    for (const r of truckExp.rows) truckExpMap[r.truck] = parseN(r.expenses);
+    const trucks = truckSales.rows.map(r => {
+      const rev  = parseN(r.revenue);
+      const dist = parseN(r.distance);
+      const exp  = truckExpMap[r.truck] || 0;
+      const prof = rev - exp;
+      return {
+        truck: r.truck, trips: r.trips, revenue: rev, distance: dist, expenses: exp,
+        profit: prof, marginPct: rev > 0 ? (prof / rev) * 100 : 0,
+        costPerKm: dist > 0 ? exp / dist : 0, revenuePerKm: dist > 0 ? rev / dist : 0,
+      };
+    });
+
+    // ── Per route — expenses aren't tracked per-route, so cost is estimated using the
+    // fleet's average cost/km applied to that route's distance. Labeled as an estimate.
+    const routes = routeSales.rows.map(r => {
+      const rev  = parseN(r.revenue);
+      const dist = parseN(r.distance);
+      const estCost = fleetCostPerKm * dist;
+      const estProfit = rev - estCost;
+      return {
+        route: `${r.origin} → ${r.destination}`, origin: r.origin, destination: r.destination,
+        trips: r.trips, revenue: rev, distance: dist,
+        avgRevenuePerKm: dist > 0 ? rev / dist : 0,
+        estimatedCost: estCost, estimatedProfit: estProfit,
+        estimatedMarginPct: rev > 0 ? (estProfit / rev) * 100 : 0,
+      };
+    }).sort((a, b) => b.trips - a.trips);
+
+    // ── Expense category trend vs prior equal-length period ──
+    const priorMap = {};
+    for (const r of catPriorReal.rows) priorMap[r.category] = parseN(r.amount);
+    const categories = catCurrent.rows.map(r => {
+      const cur   = parseN(r.amount);
+      const prior = priorMap[r.category] || 0;
+      const pctChange = prior > 0 ? ((cur - prior) / prior) * 100 : (cur > 0 ? 100 : 0);
+      return { category: r.category, current: cur, prior, pctChange };
+    }).sort((a, b) => b.current - a.current);
+
+    // ── Recommendations (rule-based) ──
+    const recommendations = [];
+
+    if (trips >= 3 && revenue > 0 && marginPct < targetMargin) {
+      const gapPts = (targetMargin - marginPct).toFixed(1);
+      recommendations.push({
+        severity: marginPct < 0 ? 'high' : 'medium',
+        area: 'pricing',
+        message: `Overall margin over the last ${days} days is ${marginPct.toFixed(1)}%, ${gapPts} points below your ${targetMargin}% target. Revenue was ${fmtN(revenue)} against ${fmtN(expenses)} in expenses across ${trips} trips.`,
+        action: `Use the Rate Calculator with your real diesel/expense numbers before quoting new trips, and revisit standing rates on your busiest routes.`,
+      });
+    }
+
+    if (trucks.length >= 2) {
+      const fleetAvgCostPerKm = trucks.reduce((s, t) => s + t.costPerKm * t.distance, 0) / (trucks.reduce((s, t) => s + t.distance, 0) || 1);
+      for (const t of trucks) {
+        if (t.trips >= 3 && t.distance > 0 && fleetAvgCostPerKm > 0 && t.costPerKm > fleetAvgCostPerKm * 1.15) {
+          const pctWorse = ((t.costPerKm / fleetAvgCostPerKm - 1) * 100).toFixed(0);
+          recommendations.push({
+            severity: 'medium',
+            area: 'operations',
+            message: `${t.truck} costs ${fmtN(t.costPerKm)}/km to run — ${pctWorse}% above the fleet average of ${fmtN(fleetAvgCostPerKm)}/km over the last ${days} days.`,
+            action: `Check ${t.truck} for maintenance issues driving up fuel or repair costs, or review whether it's being assigned to less efficient routes.`,
+          });
+        }
+      }
+    }
+
+    for (const r of routes) {
+      if (r.trips >= 3 && r.revenue > 0 && r.estimatedMarginPct < targetMargin) {
+        const neededRevenue  = r.estimatedCost > 0 ? r.estimatedCost / (1 - targetMargin / 100) : r.revenue;
+        const avgRevPerTrip  = r.revenue / r.trips;
+        const neededPerTrip  = neededRevenue / r.trips;
+        const raisePct = avgRevPerTrip > 0 ? ((neededPerTrip / avgRevPerTrip - 1) * 100).toFixed(0) : 0;
+        recommendations.push({
+          severity: r.estimatedMarginPct < 0 ? 'high' : 'medium',
+          area: 'pricing',
+          message: `Route ${r.route} is running at an estimated ${r.estimatedMarginPct.toFixed(1)}% margin over ${r.trips} trips, below your ${targetMargin}% target.`,
+          action: `Consider raising the rate on this route by roughly ${raisePct}% to hit your target margin, or find ways to cut its trip costs.`,
+        });
+      }
+    }
+
+    for (const c of categories) {
+      if (c.prior > 20000 && c.pctChange > 25) {
+        recommendations.push({
+          severity: 'low',
+          area: 'operations',
+          message: `"${c.category}" expenses rose ${c.pctChange.toFixed(0)}% vs the previous ${days}-day period (${fmtN(c.prior)} → ${fmtN(c.current)}).`,
+          action: `Review recent ${c.category.toLowerCase()} spend for anything unusual — a one-off cost, a vendor price increase, or a recurring issue worth fixing.`,
+        });
+      }
+    }
+
+    const dq = distanceQuality.rows[0];
+    const missingDistancePct = dq.total > 0 ? ((dq.total - dq.with_distance) / dq.total) * 100 : 0;
+    if (dq.total >= 5 && missingDistancePct > 30) {
+      recommendations.push({
+        severity: 'low',
+        area: 'data quality',
+        message: `${missingDistancePct.toFixed(0)}% of trips in the last ${days} days have no recorded distance, so cost-per-km and route insights are based on incomplete data.`,
+        action: `Log distance when recording sales — the Rate Calculator's location auto-lookup can help estimate it accurately.`,
+      });
+    }
+
+    if (recommendations.length === 0 && trips >= 3) {
+      recommendations.push({
+        severity: 'info',
+        area: 'overview',
+        message: `No major issues found over the last ${days} days — margin, truck costs, and route pricing all look reasonably healthy.`,
+        action: `Keep logging trips and expenses consistently so these insights stay accurate as the business grows.`,
+      });
+    }
+
+    res.json({
+      period_days: days, target_margin: targetMargin,
+      summary: { revenue, expenses, profit, marginPct, distance, trips, fleetCostPerKm, fleetRevPerKm },
+      trucks, routes, categories, recommendations,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Sales CRUD
@@ -1321,30 +1508,137 @@ app.get('/api/aphl/invoices/:id/pdf', requireAuth, (_req, res) => {
   res.status(422).json({ error: 'PDF engine unavailable — use client-side PDF generation' });
 });
 
+// ─── HAULAGE DISTANCE ESTIMATE ─────────────────────────────────────────────────
+
+// GET /api/aphl/places-autocomplete?input=... — live suggestions as the user types,
+// so origin/destination can be picked precisely instead of guessed from free text.
+app.get('/api/aphl/places-autocomplete', requireAuth, async (req, res) => {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const { input } = req.query;
+
+  if (!apiKey) return res.status(500).json({ error: 'GOOGLE_PLACES_API_KEY is not set.' });
+  if (!input || input.trim().length < 3) return res.json({ predictions: [] });
+
+  try {
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json` +
+                `?input=${encodeURIComponent(input)}&key=${apiKey}`;
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      return res.status(502).json({ error: `Google API: ${data.status} — ${data.error_message || ''}` });
+    }
+    res.json({
+      predictions: (data.predictions || []).map(p => ({
+        description: p.description,
+        place_id:    p.place_id,
+      })),
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// POST /api/aphl/distance — resolves origin & destination to precise coordinates
+// (by place_id when the user picked a suggestion, otherwise best-guess text match),
+// then computes real driving distance via OSRM (free, no API key required).
+app.post('/api/aphl/distance', requireAuth, async (req, res) => {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const { origin, destination, origin_place_id, destination_place_id } = req.body;
+
+  if (!apiKey) return res.status(500).json({ error: 'GOOGLE_PLACES_API_KEY is not set.' });
+  if (!origin || !destination) return res.status(400).json({ error: 'Origin and destination are required.' });
+
+  // Precise lookup — used when the user picked a suggestion from the autocomplete dropdown.
+  const geocodeByPlaceId = async (placeId, fallbackText) => {
+    const url = `https://maps.googleapis.com/maps/api/place/details/json` +
+                `?place_id=${encodeURIComponent(placeId)}` +
+                `&fields=name,formatted_address,geometry&key=${apiKey}`;
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.status !== 'OK' || !data.result) {
+      throw new Error(`Could not resolve "${fallbackText}" (${data.status || 'no match'})`);
+    }
+    const p = data.result;
+    return {
+      name: p.formatted_address || p.name || fallbackText,
+      lat: p.geometry.location.lat,
+      lng: p.geometry.location.lng,
+    };
+  };
+
+  // Best-guess lookup — fallback when the user typed free text without selecting a suggestion.
+  const geocodeByText = async (text) => {
+    const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json` +
+                `?input=${encodeURIComponent(text)}&inputtype=textquery` +
+                `&fields=name,formatted_address,geometry&key=${apiKey}`;
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.status !== 'OK' || !data.candidates?.length) {
+      throw new Error(`Could not locate "${text}" (${data.status || 'no match'})`);
+    }
+    const c = data.candidates[0];
+    return {
+      name: c.formatted_address || c.name || text,
+      lat: c.geometry.location.lat,
+      lng: c.geometry.location.lng,
+    };
+  };
+
+  try {
+    const [from, to] = await Promise.all([
+      origin_place_id      ? geocodeByPlaceId(origin_place_id, origin)           : geocodeByText(origin),
+      destination_place_id ? geocodeByPlaceId(destination_place_id, destination) : geocodeByText(destination),
+    ]);
+
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/` +
+                     `${from.lng},${from.lat};${to.lng},${to.lat}?overview=false`;
+    const osrmRes  = await fetch(osrmUrl);
+    const osrmData = await osrmRes.json();
+
+    if (osrmData.code !== 'Ok' || !osrmData.routes?.length) {
+      return res.status(422).json({ error: 'Could not find a driving route between these locations.' });
+    }
+
+    const meters = osrmData.routes[0].distance;
+    res.json({
+      origin: from,
+      destination: to,
+      distance_km: Math.round((meters / 1000) * 10) / 10,
+      precise: !!(origin_place_id && destination_place_id),
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // ─── RATE CALCULATIONS ────────────────────────────────────────────────────────
 
 app.post('/api/aphl/calculations', requireAuth, async (req, res) => {
   const {
-    route, product, volume_litres, truck,
+    route, origin, destination, distance_km, fuel_rate,
+    product, volume_litres, truck,
     diesel_litres, diesel_price, diesel_cost,
     total_trip_expenses, company_overhead, total_cost,
     target_margin, break_even_rate, recommended_rate,
-    total_revenue, net_profit,
+    total_revenue, net_profit, driver_pct, driver_payment,
   } = req.body;
   try {
     const { rows } = await pool.query(`
       INSERT INTO rate_calculations
-        (route, product, volume_litres, truck, diesel_litres, diesel_price, diesel_cost,
+        (route, origin, destination, distance_km, fuel_rate,
+         product, volume_litres, truck, diesel_litres, diesel_price, diesel_cost,
          total_trip_expenses, company_overhead, total_cost, target_margin,
-         break_even_rate, recommended_rate, total_revenue, net_profit)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         break_even_rate, recommended_rate, total_revenue, net_profit,
+         driver_pct, driver_payment)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       RETURNING *
     `, [
-      route || null, product, volume_litres, truck,
+      route || null, origin || null, destination || null, distance_km || null, fuel_rate || null,
+      product, volume_litres, truck,
       diesel_litres, diesel_price, diesel_cost,
       total_trip_expenses, company_overhead, total_cost,
       target_margin, break_even_rate, recommended_rate,
-      total_revenue, net_profit,
+      total_revenue, net_profit, driver_pct || null, driver_payment || null,
     ]);
     res.json(rows[0]);
   } catch (err) {

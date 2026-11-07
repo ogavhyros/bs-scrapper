@@ -1,4 +1,4 @@
-import { Home, TrendingUp, Receipt, Calculator, FileText, Fuel, Search, Users, Phone, BarChart2, LogOut } from 'lucide-react';
+import { Home, TrendingUp, Receipt, Calculator, FileText, Fuel, Search, Users, Phone, BarChart2, LogOut, Lightbulb } from 'lucide-react';
 import LinkedInIcon from './LinkedInIcon';
 import { useTheme } from '../context/ThemeContext';
 
@@ -11,6 +11,7 @@ const APHL_NAV = [
   { id: 'calculator',  label: 'Rate Calculator',   icon: Calculator },
   { id: 'diesel',      label: 'Diesel Prices',     icon: Fuel       },
   { id: 'invoices',    label: 'Invoice Generator', icon: FileText   },
+  { id: 'insights',    label: 'Insights',          icon: Lightbulb  },
 ];
 
 const SCOUT_NAV = [

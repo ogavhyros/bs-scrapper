@@ -12,6 +12,7 @@ import ExpenseTab       from './components/aphl/ExpenseTab';
 import RateCalculator   from './components/aphl/RateCalculator';
 import InvoiceGenerator from './components/aphl/InvoiceGenerator';
 import DieselPriceTab   from './components/aphl/DieselPriceTab';
+import InsightsTab      from './components/aphl/InsightsTab';
 // Business Scout
 import ScraperTab  from './components/ScraperTab';
 import ContactsTab from './components/ContactsTab';
@@ -38,6 +39,7 @@ const PAGE_META = {
   calculator:() => ({ title: 'Rate Calculator',   sub: 'Calculate minimum viable haulage rate for any trip' }),
   invoices:  () => ({ title: 'Invoice Generator', sub: 'Create and manage professional invoices' }),
   diesel:    () => ({ title: 'Diesel Prices',      sub: 'Track official depot price — trip fuel cost adds ₦50 markup in Rate Calculator' }),
+  insights:  () => ({ title: 'Insights',           sub: 'Unit economics & next steps to improve rates and operations' }),
   scraper:   (s) => ({ title: 'Contact Scraper',   sub: `${s.total} contact${s.total !== 1 ? 's' : ''} collected · up to 100 per search` }),
   contacts:  (s) => ({ title: 'All Contacts',      sub: `${s.total} business contact${s.total !== 1 ? 's' : ''} · complete records` }),
   analytics: (s) => ({ title: 'Analytics',         sub: `${s.runs} scrape run${s.runs !== 1 ? 's' : ''} · full history` }),
@@ -148,6 +150,7 @@ function AppContent() {
             {activeTab === 'calculator' && <RateCalculator    showToast={showToast} />}
             {activeTab === 'invoices'   && <InvoiceGenerator  showToast={showToast} />}
             {activeTab === 'diesel'     && <DieselPriceTab    showToast={showToast} />}
+            {activeTab === 'insights'   && <InsightsTab       showToast={showToast} />}
             {activeTab === 'scraper'   && <ScraperTab   stats={stats} onRefresh={refreshData} />}
             {activeTab === 'contacts'  && (
               <ContactsTab contacts={contacts} onRefresh={refreshData} crmPlaceIds={crmPlaceIds} showToast={showToast} />
