@@ -5,6 +5,7 @@ import { useToast, ToastContainer }              from './components/Toast';
 import AuthPage    from './pages/AuthPage';
 import Sidebar     from './components/Sidebar';
 import BottomNav   from './components/BottomNav';
+import AccountModal from './components/AccountModal';
 // APHL Africa
 import OverviewTab      from './components/aphl/OverviewTab';
 import SalesTab         from './components/aphl/SalesTab';
@@ -63,6 +64,7 @@ function LoadingSpinner() {
 function AppContent() {
   const { user, isLoading, logout } = useAuth();
   const [activeTab,        setActiveTab]        = useState('overview');
+  const [showAccount,      setShowAccount]      = useState(false);
   const [contacts,         setContacts]         = useState([]);
   const [runs,             setRuns]             = useState([]);
   const [crmContacts,      setCrmContacts]      = useState([]);
@@ -120,7 +122,7 @@ function AppContent() {
         activeTab={activeTab} setActiveTab={setActiveTab}
         totalContacts={stats.total} crmCount={stats.crmTotal}
         linkedinCount={stats.linkedinTotal} userEmail={user.email}
-        onLogout={logout}
+        onLogout={logout} onOpenAccount={() => setShowAccount(true)}
       />
 
       {/* Content area */}
@@ -136,9 +138,11 @@ function AppContent() {
             <h1 className="text-xl font-bold text-ink leading-tight">{page.title}</h1>
             <p className="text-xs text-ink-soft mt-0.5">{page.sub}</p>
           </div>
-          <div className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0 lg:hidden">
+          <button type="button" onClick={() => setShowAccount(true)} aria-label="Account"
+            className="w-8 h-8 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0 lg:hidden"
+            style={{ border: 'none', cursor: 'pointer' }}>
             {user.email[0].toUpperCase()}
-          </div>
+          </button>
         </header>
 
         {/* Scrollable content */}
@@ -168,6 +172,10 @@ function AppContent() {
 
       {/* Mobile bottom nav */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      {showAccount && (
+        <AccountModal email={user.email} onClose={() => setShowAccount(false)}
+          onLogout={() => { setShowAccount(false); logout(); }} showToast={showToast} />
+      )}
       <ToastContainer toasts={toasts} />
     </div>
   );

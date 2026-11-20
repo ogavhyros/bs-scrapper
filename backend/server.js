@@ -41,8 +41,20 @@ function requireAuth(req, res, next) {
 
 // ─── AUTH ROUTES ──────────────────────────────────────────────────────────────
 
+const normEmail = (e) => (typeof e === 'string' ? e.trim().toLowerCase() : '');
+
+// Matches rows even if an older version stored the email with caps/whitespace.
+const findUserByEmail = async (email) => {
+  const { rows } = await pool.query(
+    'SELECT * FROM users WHERE LOWER(TRIM(email)) = $1 ORDER BY id LIMIT 1',
+    [normEmail(email)]
+  );
+  return rows[0];
+};
+
 app.post('/api/auth/signup', async (req, res) => {
-  const { email, password } = req.body;
+  const email = normEmail(req.body.email);
+  const { password } = req.body;
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'A valid email address is required.' });
   }
@@ -50,15 +62,11 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
   try {
-    const { rows: existing } = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
-    if (existing.length > 0) return res.status(409).json({ error: 'An account with this email already exists.' });
+    if (await findUserByEmail(email)) return res.status(409).json({ error: 'An account with this email already exists.' });
     const hash = await bcrypt.hash(password, 10);
     await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2)',
-      [email.toLowerCase(), hash]
+      [email, hash]
     );
     res.json({ success: true, message: 'Account created' });
   } catch (err) {
@@ -67,17 +75,20 @@ app.post('/api/auth/signup', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
+  const email = normEmail(req.body.email);
+  const { password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   try {
-    const { rows } = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
-    const user = rows[0];
-    if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
+    const user = await findUserByEmail(email);
+    if (!user) {
+      console.warn(`Login failed: no account for ${email}`);
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
     const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) return res.status(401).json({ error: 'Invalid email or password.' });
+    if (!match) {
+      console.warn(`Login failed: wrong password for ${email}`);
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
     await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, email: user.email, message: 'Login successful' });
@@ -90,6 +101,27 @@ app.post('/api/auth/logout', (_req, res) => res.json({ success: true }));
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ id: req.user.id, email: req.user.email });
+});
+
+// ── POST /api/auth/change-password (logged in) ───────────────────────────────
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
+  if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  try {
+    const { rows } = await pool.query('SELECT id, password_hash FROM users WHERE id = $1', [req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Account not found.' });
+    const match = await bcrypt.compare(currentPassword, rows[0].password_hash);
+    if (!match) return res.status(400).json({ error: 'Current password is incorrect.' });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      'UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL WHERE id = $2',
+      [hash, rows[0].id]
+    );
+    res.json({ message: 'Password changed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Temporary debug endpoint ──────────────────────────────────────────────────
@@ -110,16 +142,23 @@ app.get('/api/auth/debug', async (_req, res) => {
 
 // ── POST /api/auth/forgot-password ───────────────────────────────────────────
 app.post('/api/auth/forgot-password', async (req, res) => {
-  const { email } = req.body;
+  const email = normEmail(req.body.email);
   if (!email) return res.status(400).json({ error: 'Email is required.' });
+  const emailConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  if (!emailConfigured) {
+    console.warn('Forgot password requested but EMAIL_USER/EMAIL_PASS are not set — no email will be sent.');
+    return res.status(503).json({
+      error: 'Password reset emails are not set up on this server yet. Ask the admin to reset your password.',
+    });
+  }
   try {
-    const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
-    if (rows.length > 0) {
+    const user = await findUserByEmail(email);
+    if (user) {
       const token   = crypto.randomBytes(32).toString('hex');
       const expires = new Date(Date.now() + 3600 * 1000); // 1 hour
       await pool.query(
-        'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE email = $3',
-        [token, expires, email.toLowerCase()]
+        'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3',
+        [token, expires, user.id]
       );
       const resetUrl = `${process.env.FRONTEND_URL || 'https://bs-scrapper-ivory.vercel.app'}?token=${token}`;
       const html = `<!DOCTYPE html>
@@ -149,18 +188,16 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 </body>
 </html>`;
 
-      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-        });
-        await transporter.sendMail({
-          from: `"Business Scout" <${process.env.EMAIL_USER}>`,
-          to: email,
-          subject: 'Reset your Business Scout password',
-          html,
-        });
-      }
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      });
+      await transporter.sendMail({
+        from: `"Business Scout" <${process.env.EMAIL_USER}>`,
+        to: user.email,
+        subject: 'Reset your Business Scout password',
+        html,
+      });
     }
     // Always return success — don't reveal whether email exists
     res.json({ message: 'Reset email sent if account exists' });

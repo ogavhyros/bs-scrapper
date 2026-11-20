@@ -1,4 +1,4 @@
-import { Home, TrendingUp, Receipt, Calculator, FileText, Fuel, Search, Users, Phone, BarChart2, LogOut, Lightbulb } from 'lucide-react';
+import { Home, TrendingUp, Receipt, Calculator, FileText, Fuel, Search, Users, Phone, BarChart2, LogOut, Lightbulb, KeyRound } from 'lucide-react';
 import LinkedInIcon from './LinkedInIcon';
 import { useTheme } from '../context/ThemeContext';
 
@@ -75,7 +75,7 @@ function NavItem({ item, active, badge, onClick }) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
-export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount, linkedinCount, userEmail, onLogout }) {
+export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCount, linkedinCount, userEmail, onLogout, onOpenAccount }) {
   const { isDark, toggleTheme } = useTheme();
 
   const badges = {
@@ -140,6 +140,15 @@ export default function Sidebar({ activeTab, setActiveTab, totalContacts, crmCou
           onMouseOut={e =>  { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
           <span>{isDark ? '☀️' : '🌙'}</span>
           {isDark ? 'Light mode' : 'Dark mode'}
+        </button>
+
+        {/* Change password */}
+        <button onClick={onOpenAccount}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', background: 'none', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500, marginBottom: 10, transition: 'all 0.15s' }}
+          onMouseOver={e => { e.currentTarget.style.borderColor = '#42D674'; e.currentTarget.style.color = '#42D674'; }}
+          onMouseOut={e =>  { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>
+          <KeyRound size={13} />
+          Change password
         </button>
 
         {/* Status + user */}
